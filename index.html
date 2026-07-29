@@ -1,0 +1,1521 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Picadas Concordia</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Oswald:wght@500;700&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Firebase SDK (Versión Compat para integración sencilla con Vanilla JS) -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        picadas: {
+                            pink: '#d200b3', // Color fucsia del logo
+                            pinkDark: '#a10089',
+                            dark: '#0f0f11',
+                            card: '#1a1a1d'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        display: ['Oswald', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background-color: #0f0f11;
+            color: #ffffff;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        /* Custom Scrollbar for tables */
+        .custom-scrollbar::-webkit-scrollbar {
+            height: 6px;
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #1a1a1d;
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #d200b3;
+            border-radius: 4px;
+        }
+
+        /* Animations */
+        .fade-in {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .slide-in-right {
+            animation: slideInRight 0.3s ease-in-out;
+        }
+        @keyframes slideInRight {
+            from { opacity: 0; transform: translateX(20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        
+        /* Toast Notification */
+        #toast-container {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 50;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            pointer-events: none;
+            width: 90%;
+            max-width: 400px;
+        }
+        .toast {
+            background: #1a1a1d;
+            border-left: 4px solid #d200b3;
+            padding: 12px 16px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            animation: toastIn 0.3s ease-out forwards;
+        }
+        .toast.success { border-left-color: #22c55e; }
+        .toast.error { border-left-color: #ef4444; }
+        .toast.info { border-left-color: #3b82f6; }
+        
+        @keyframes toastIn {
+            from { opacity: 0; transform: translateY(100%); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes toastOut {
+            from { opacity: 1; transform: translateY(0); }
+            to { opacity: 0; transform: translateY(100%); }
+        }
+
+        /* Sticky Columns for Tables */
+        .sticky-col-1 {
+            position: sticky;
+            left: 0;
+            background-color: inherit;
+            z-index: 10;
+        }
+        .sticky-col-2 {
+            position: sticky;
+            left: 40px; /* Adjust based on col 1 width */
+            background-color: inherit;
+            z-index: 10;
+        }
+        
+        /* Ensure inputs in tables look seamless */
+        .table-input {
+            background: transparent;
+            border: 1px solid transparent;
+            color: inherit;
+            width: 100%;
+            text-align: center;
+        }
+        .table-input:focus {
+            border: 1px solid #d200b3;
+            outline: none;
+            background: rgba(210,0,179,0.1);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="font-sans antialiased selection:bg-picadas-pink selection:text-white h-screen flex flex-col overflow-hidden">
+
+    <!-- App Container -->
+    <div id="app" class="h-full flex flex-col overflow-y-auto"></div>
+    
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
+
+    <script>
+           
+        // --- CONFIGURACIÓN DE FIREBASE ---
+        
+        const firebaseConfig = {
+ 	 apiKey: "AIzaSyCvkfQFhGvCii6EGh_2VPwX-uQQBT_2IiE",
+ 	 authDomain: "sistemas-picadasconcordia.firebaseapp.com",
+ 	 projectId: "sistemas-picadasconcordia",
+	 storageBucket: "sistemas-picadasconcordia.firebasestorage.app",
+  	 messagingSenderId: "182608457300",
+  	 appId: "1:182608457300:web:c89f0b615a29e856ba47c1"
+};
+
+        // Inicializar Firebase (Envuelto en un try/catch para que la app siga funcionando localmente si aún no pones tus keys)
+        let db, auth;
+        try {
+            if (!firebase.apps.length) {
+                firebase.initializeApp(firebaseConfig);
+            }
+            db = firebase.firestore();
+            auth = firebase.auth();
+            console.log("Firebase inicializado correctamente.");
+        } catch (error) {
+            console.warn("Firebase no configurado aún. Usando datos de prueba locales.");
+        }
+
+        //        
+        // --- DATA & STATE MANAGEMENT (Modo Local) ---
+        // Nota: Cuando Firebase esté conectado 100%, este estado se actualizará leyendo la base de datos (Firestore)
+        const CLASS_TIME_LIMITS = {
+            'Clase 1': 'Tiempo tope: 13.00 seg',
+            'Clase 2': 'Tiempo tope: 12.50 seg',
+            'Clase 3': 'Tiempo tope: 12.00 seg',
+            'Clase 4': 'Tiempo tope: 11.50 seg',
+            'Clase 5': 'Tiempo tope: 11.00 seg',
+            'Clase 6': 'Tiempo tope: 10.50 seg',
+            'Clase 7': 'Tiempo tope: 10.00 seg',
+            'Clase 8': 'Tiempo tope: 9.50 seg',
+            'Clase 9': 'Tiempo tope: 9.00 seg',
+            'Libre Radial': 'Sin límite',
+            'Libre': 'Sin límite'
+        };
+
+        const APP_STATE = {
+            view: 'login', // Vistas disponibles
+            user: null, 
+            registeredUsers: [
+                { doc: '111', password: 'admin', role: 'admin', name: 'Administrador' } // Default admin
+            ],
+            selectedCategory: null, // 'autos' or 'motos'
+            selectedClass: null,
+            liveTab: 'entrada', // entrada, torre, evento, valores
+            prices: {
+                ticket: 5000,
+                parking: 2000,
+                insurance: 15000,
+                autoEnrollment: 20000,
+                motoEnrollment: 15000,
+                reentry: 10000
+            },
+            liveStatus: {
+                active: false,
+                category: null,
+                class: null
+            },
+            
+            enrollmentData: {},
+
+            championship: {
+                motos: {
+                    dates: ['Fecha 1', 'Fecha 2', 'Fecha 3'],
+                    classes: ['Clase 1', 'Clase 2', 'Clase 3', 'Clase 4', 'Clase 5', 'Clase 6', 'Clase 7', 'Libre'],
+                    data: {
+                        'Clase 1': [
+                            { id: 1, ins: '01', pilot: 'Juan Pérez', dates: [15, 20, 10] }
+                        ]
+                    }
+                },
+                autos: {
+                    dates: ['Fecha 1', 'Fecha 2', 'Fecha 3', 'Fecha 4'],
+                    classes: ['Clase 1', 'Clase 2', 'Clase 3', 'Clase 4', 'Clase 5', 'Clase 6', 'Clase 7', 'Clase 8', 'Clase 9', 'Libre Radial', 'Libre'],
+                    data: {
+                        'Clase 4': [
+                            { id: 1, ins: '99', pilot: 'A. Senna', dates: [25, 25, 20, 15] }
+                        ]
+                    }
+                }
+            }
+        };
+
+        // Initialize empty arrays for classes without mock data
+        APP_STATE.championship.motos.classes.forEach(cls => {
+            if (!APP_STATE.championship.motos.data[cls]) APP_STATE.championship.motos.data[cls] = [];
+        });
+        APP_STATE.championship.autos.classes.forEach(cls => {
+            if (!APP_STATE.championship.autos.data[cls]) APP_STATE.championship.autos.data[cls] = [];
+        });
+
+        //        
+        // --- UTILS ---
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            
+            let icon = 'fa-info-circle text-blue-500';
+            if (type === 'success') icon = 'fa-check-circle text-green-500';
+            if (type === 'error') icon = 'fa-exclamation-circle text-red-500';
+
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `
+                <i class="fas ${icon} text-xl"></i>
+                <span class="text-white text-sm font-medium">${message}</span>
+            `;
+            
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.animation = 'toastOut 0.3s ease-in forwards';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function calculateTotalPoints(pilotDates) {
+            return pilotDates.reduce((a, b) => (parseInt(a) || 0) + (parseInt(b) || 0), 0);
+        }
+
+        function sortClassData(category, className) {
+            const data = APP_STATE.championship[category].data[className];
+            data.sort((a, b) => calculateTotalPoints(b.dates) - calculateTotalPoints(a.dates));
+        }
+
+        // --- CORE ROUTING ---
+        function setView(viewName) {
+            APP_STATE.view = viewName;
+            render();
+            document.getElementById('app').scrollTop = 0;
+        }
+
+        function render() {
+            const app = document.getElementById('app');
+            let content = '';
+
+            if (!['login', 'register', 'recovery', 'recoveryStep2'].includes(APP_STATE.view)) {
+                content += renderHeader();
+            }
+
+            content += '<main class="flex-1 flex flex-col w-full max-w-4xl mx-auto">';
+            
+            switch (APP_STATE.view) {
+                case 'login': content += renderLogin(); break;
+                case 'register': content += renderRegister(); break;
+                case 'recovery': content += renderRecovery(); break;
+                case 'recoveryStep2': content += renderRecoveryStep2(); break;
+                case 'dashboard': content += renderDashboard(); break;
+                case 'liveEvent': content += renderLiveEvent(); break;
+                case 'calendar': content += renderCalendar(); break;
+                case 'categories': content += renderCategories(); break;
+                case 'classDetail': content += renderClassDetail(); break;
+                case 'enrollment': content += renderEnrollment(); break;
+                case 'payment': content += renderPayment(); break;
+                case 'adminEnrollment': content += renderAdminEnrollment(); break;
+                case 'support': content += renderSupport(); break;
+                default: content += renderLogin();
+            }
+            
+            content += '</main>';
+            app.innerHTML = content;
+        }
+
+        //        
+        // --- VIEWS ---
+        function renderHeader() {
+            return `
+                <header class="bg-picadas-dark border-b border-gray-800 p-4 sticky top-0 z-40 shadow-md">
+                    <div class="max-w-4xl mx-auto flex justify-between items-center">
+                        <button onclick="handleBack()" class="text-gray-400 hover:text-white p-2">
+                            <i class="fas fa-arrow-left text-xl"></i>
+                        </button>
+                        <div class="flex flex-col items-center cursor-pointer" onclick="setView('dashboard')">
+                            <!-- Logo Header -->
+                            <img src="logo.png" alt="Picadas Concordia" class="h-8 object-contain">
+                        </div>
+                        <button onclick="handleLogout()" class="text-gray-400 hover:text-picadas-pink p-2">
+                            <i class="fas fa-sign-out-alt text-xl"></i>
+                        </button>
+                    </div>
+                </header>
+            `;
+        }
+
+        function handleBack() {
+            if (APP_STATE.view === 'classDetail') setView('categories');
+            else if (APP_STATE.view === 'enrollment') setView('classDetail');
+            else if (APP_STATE.view === 'payment') setView('enrollment');
+            else if (APP_STATE.view === 'adminEnrollment') setView('classDetail');
+            else setView('dashboard');
+        }
+
+        function renderLogin() {
+            return `
+                <div class="flex-1 flex flex-col justify-center p-6 fade-in bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-picadas-pinkDark/20 via-picadas-dark to-black">
+                    <div class="w-full max-w-md mx-auto">
+                        <div class="text-center mb-10">
+                            <!-- Logo Login -->
+                            <img src="logo.png" alt="Picadas Concordia" class="h-24 mx-auto mb-4 object-contain drop-shadow-[0_0_15px_rgba(210,0,179,0.3)]">
+                            <p class="text-gray-400 font-sans">Sistema de Gestión de Pilotos</p>
+                        </div>
+                        
+                        <form onsubmit="handleLogin(event)" class="space-y-4 bg-picadas-card p-6 rounded-2xl border border-gray-800 shadow-2xl">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Nro. Documento</label>
+                                <div class="relative">
+                                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <i class="fas fa-id-card text-gray-500"></i>
+                                    </div>
+                                    <input type="number" id="loginDoc" required class="block w-full pl-10 pr-3 py-3 border border-gray-700 rounded-xl bg-black text-white placeholder-gray-500 focus:outline-none focus:border-picadas-pink focus:ring-1 focus:ring-picadas-pink transition-colors" placeholder="12345678">
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Contraseña</label>
+                                <div class="relative">
+                                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <i class="fas fa-lock text-gray-500"></i>
+                                    </div>
+                                    <input type="password" id="loginPass" required class="block w-full pl-10 pr-3 py-3 border border-gray-700 rounded-xl bg-black text-white placeholder-gray-500 focus:outline-none focus:border-picadas-pink focus:ring-1 focus:ring-picadas-pink transition-colors" placeholder="••••••••">
+                                </div>
+                            </div>
+
+                            <button type="submit" class="w-full py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-picadas-pink hover:bg-picadas-pinkDark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-picadas-pink transition-colors mt-6 uppercase tracking-wider">
+                                Iniciar Sesión
+                            </button>
+                            
+                            <button type="button" onclick="setView('register')" class="w-full py-3 px-4 border border-gray-600 rounded-xl shadow-sm text-sm font-bold text-gray-300 bg-transparent hover:bg-gray-800 focus:outline-none transition-colors mt-2">
+                                Registrarse
+                            </button>
+                        </form>
+
+                        <div class="text-center mt-6">
+                            <button onclick="setView('recovery')" class="text-sm text-gray-500 hover:text-picadas-pink transition-colors">¿Olvidaste tu contraseña?</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderRegister() {
+            return `
+                <div class="flex-1 flex flex-col justify-center p-6 slide-in-right">
+                    <div class="w-full max-w-md mx-auto">
+                        <button onclick="setView('login')" class="text-gray-400 hover:text-white mb-6 flex items-center gap-2">
+                            <i class="fas fa-arrow-left"></i> Volver al Login
+                        </button>
+                        
+                        <h2 class="text-3xl font-display font-bold text-white mb-6 uppercase">Crear Cuenta</h2>
+                        
+                        <form onsubmit="handleRegister(event)" class="space-y-4 bg-picadas-card p-6 rounded-2xl border border-gray-800">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Nombre y Apellido</label>
+                                <input type="text" id="regName" required class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Nro. Documento</label>
+                                <input type="number" id="regDoc" required class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Email</label>
+                                <input type="email" id="regEmail" required class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Teléfono</label>
+                                <input type="tel" id="regPhone" required class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Contraseña</label>
+                                <input type="password" id="regPass" required class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink">
+                            </div>
+
+                            <button type="submit" class="w-full py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-picadas-pink hover:bg-picadas-pinkDark transition-colors mt-6 uppercase tracking-wider">
+                                Completar Registro
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            `;
+        }
+
+        //        
+        function renderRecovery() {
+            return `
+                <div class="flex-1 flex flex-col justify-center p-6 fade-in">
+                    <div class="w-full max-w-md mx-auto">
+                        <button onclick="setView('login')" class="text-gray-400 hover:text-white mb-6 flex items-center gap-2">
+                            <i class="fas fa-arrow-left"></i> Volver al Login
+                        </button>
+                        
+                        <h2 class="text-3xl font-display font-bold text-white mb-2 uppercase">Recuperar Cuenta</h2>
+                        <p class="text-gray-400 mb-6 text-sm">Ingresa tu documento y elige UN método de recuperación (Mail o Teléfono).</p>
+                        
+                        <form onsubmit="handleRecoveryStep1(event)" class="space-y-4 bg-picadas-card p-6 rounded-2xl border border-gray-800">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Nro. Documento</label>
+                                <input type="number" id="recDoc" required class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink">
+                            </div>
+                            
+                            <div class="relative pt-4 border-t border-gray-800">
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Email</label>
+                                <input type="email" id="recEmail" oninput="toggleRecoveryInputs('email')" class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink disabled:bg-gray-900 disabled:opacity-50 transition-all">
+                            </div>
+
+                            <div class="text-center text-xs text-gray-600 font-bold uppercase py-1">O</div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Teléfono</label>
+                                <input type="tel" id="recPhone" oninput="toggleRecoveryInputs('phone')" class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink disabled:bg-gray-900 disabled:opacity-50 transition-all">
+                            </div>
+
+                            <button type="submit" class="w-full py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-white hover:bg-gray-200 text-black transition-colors mt-6 uppercase tracking-wider">
+                                Recuperar Usuario
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            `;
+        }
+
+        function toggleRecoveryInputs(active) {
+            const emailInput = document.getElementById('recEmail');
+            const phoneInput = document.getElementById('recPhone');
+            
+            if (active === 'email' && emailInput.value.length > 0) {
+                phoneInput.disabled = true;
+                phoneInput.value = '';
+            } else if (active === 'phone' && phoneInput.value.length > 0) {
+                emailInput.disabled = true;
+                emailInput.value = '';
+            } else {
+                emailInput.disabled = false;
+                phoneInput.disabled = false;
+            }
+        }
+
+        function renderRecoveryStep2() {
+            return `
+                <div class="flex-1 flex flex-col justify-center p-6 slide-in-right">
+                    <div class="w-full max-w-md mx-auto">
+                        <h2 class="text-3xl font-display font-bold text-white mb-2 uppercase">Nueva Contraseña</h2>
+                        <p class="text-gray-400 mb-6 text-sm" id="recoveryMessage">Ingresa el código que te enviamos y tu nueva contraseña.</p>
+                        
+                        <form onsubmit="handleRecoveryStep2(event)" class="space-y-4 bg-picadas-card p-6 rounded-2xl border border-gray-800">
+                            <div id="codeContainer">
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Código de verificación</label>
+                                <input type="text" id="recCode" class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink text-center tracking-widest font-bold" placeholder="000000">
+                            </div>
+                            
+                            <div class="pt-2">
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Nueva Contraseña</label>
+                                <input type="password" id="recNewPass" required class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Repetir Contraseña</label>
+                                <input type="password" id="recNewPassConfirm" required class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink">
+                            </div>
+
+                            <button type="submit" class="w-full py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-picadas-pink hover:bg-picadas-pinkDark transition-colors mt-6 uppercase tracking-wider">
+                                Cambiar e Iniciar Sesión
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderDashboard() {
+            let adminPanel = '';
+            if (APP_STATE.user.role === 'admin') {
+                adminPanel = `
+                    <button onclick="setView('liveEvent')" class="group relative overflow-hidden bg-picadas-pinkDark border border-picadas-pink p-6 rounded-2xl hover:bg-picadas-pink transition-colors text-left flex flex-col justify-end min-h-[120px] md:col-span-2 shadow-[0_0_20px_rgba(210,0,179,0.4)] animate-pulse hover:animate-none mb-4">
+                        <div class="absolute top-4 right-4 bg-white/20 p-3 rounded-full text-white group-hover:scale-110 transition-transform">
+                            <i class="fas fa-broadcast-tower text-2xl"></i>
+                        </div>
+                        <h3 class="text-2xl font-display font-bold text-white mb-1">Evento en Vivo</h3>
+                        <p class="text-white/80 text-sm">Control de puerta, torre, valores y transmisión en vivo.</p>
+                    </button>
+                `;
+            }
+
+            return `
+                <div class="flex-1 p-6 space-y-6 fade-in pb-20">
+                    <div class="mb-8">
+                        <h2 class="text-3xl font-display font-bold text-white">Hola, ${APP_STATE.user.name}</h2>
+                        <p class="text-gray-400">¿Qué deseas ver hoy?</p>
+                        ${APP_STATE.user.role === 'admin' ? '<span class="inline-block mt-2 bg-picadas-pink text-white text-xs px-2 py-1 rounded font-bold uppercase tracking-wide">Modo Admin</span>' : ''}
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        ${adminPanel}
+                        <button onclick="setView('categories')" class="group relative overflow-hidden bg-picadas-card border border-gray-800 p-6 rounded-2xl hover:border-picadas-pink transition-colors text-left flex flex-col justify-end min-h-[160px]">
+                            <div class="absolute top-4 right-4 bg-black/50 p-3 rounded-full text-picadas-pink group-hover:scale-110 transition-transform">
+                                <i class="fas fa-flag-checkered text-2xl"></i>
+                            </div>
+                            <h3 class="text-xl font-display font-bold text-white mb-1">Campeonato</h3>
+                            <p class="text-gray-400 text-sm">Posiciones e inscripciones.</p>
+                        </button>
+                        
+                        <button onclick="setView('calendar')" class="group relative overflow-hidden bg-picadas-card border border-gray-800 p-6 rounded-2xl hover:border-picadas-pink transition-colors text-left flex flex-col justify-end min-h-[160px]">
+                            <div class="absolute top-4 right-4 bg-black/50 p-3 rounded-full text-blue-500 group-hover:scale-110 transition-transform">
+                                <i class="far fa-calendar-alt text-2xl"></i>
+                            </div>
+                            <h3 class="text-xl font-display font-bold text-white mb-1">Calendario</h3>
+                            <p class="text-gray-400 text-sm">Fechas y pronóstico.</p>
+                        </button>
+
+                        <button onclick="setView('support')" class="group relative overflow-hidden bg-picadas-card border border-gray-800 p-6 rounded-2xl hover:border-picadas-pink transition-colors text-left flex flex-col justify-end min-h-[160px] md:col-span-2">
+                            <div class="absolute top-4 right-4 bg-black/50 p-3 rounded-full text-green-500 group-hover:scale-110 transition-transform">
+                                <i class="fas fa-headset text-2xl"></i>
+                            </div>
+                            <h3 class="text-xl font-display font-bold text-white mb-1">Soporte y Ayuda</h3>
+                            <p class="text-gray-400 text-sm">Reporta problemas o deja tu opinión.</p>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        //        
+        function renderCalendar() {
+            let adminControls = '';
+            if (APP_STATE.user.role === 'admin') {
+                adminControls = `
+                    <div class="bg-picadas-card p-4 rounded-xl border border-gray-800 mb-6">
+                        <h4 class="text-sm font-bold text-picadas-pink mb-2 uppercase">Añadir Fecha</h4>
+                        <div class="flex gap-2">
+                            <input type="date" id="newDate" class="flex-1 px-3 py-2 border border-gray-700 rounded-lg bg-black text-white focus:outline-none focus:border-picadas-pink">
+                            <input type="text" id="newDateTitle" placeholder="Ej: 3ra Fecha" class="flex-1 px-3 py-2 border border-gray-700 rounded-lg bg-black text-white focus:outline-none focus:border-picadas-pink">
+                            <button onclick="showToast('Fecha guardada exitosamente', 'success')" class="bg-picadas-pink text-white px-4 py-2 rounded-lg font-bold"><i class="fas fa-plus"></i></button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="flex-1 p-6 fade-in">
+                    <h2 class="text-2xl font-display font-bold text-white mb-6 uppercase flex items-center gap-2">
+                        <i class="far fa-calendar-alt text-picadas-pink"></i> Calendario de Eventos
+                    </h2>
+                    
+                    ${adminControls}
+
+                    <div class="space-y-4">
+                        <div class="bg-picadas-card p-5 rounded-2xl border border-gray-800 flex items-center justify-between">
+                            <div>
+                                <h3 class="font-display font-bold text-xl text-white">4ta Fecha - Campeonato</h3>
+                                <p class="text-gray-400 text-sm flex items-center gap-2 mt-1">
+                                    <i class="far fa-clock"></i> 15 de Octubre, 2023 - 09:00 AM
+                                </p>
+                            </div>
+                            <div class="text-center bg-black/50 p-3 rounded-xl border border-gray-800">
+                                <i class="fas fa-sun text-yellow-500 text-2xl mb-1"></i>
+                                <p class="text-xs font-bold text-gray-300">24°C</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderCategories() {
+            if (!APP_STATE.selectedCategory) {
+                const isAutoLive = APP_STATE.liveStatus.active && APP_STATE.liveStatus.category === 'autos';
+                const isMotoLive = APP_STATE.liveStatus.active && APP_STATE.liveStatus.category === 'motos';
+
+                return `
+                    <div class="flex-1 p-4 fade-in flex flex-col items-center justify-center gap-6">
+                        <h2 class="text-2xl font-display font-bold text-white mb-2">Selecciona una Categoría</h2>
+                        
+                        <button onclick="APP_STATE.selectedCategory='autos'; render();" class="relative w-full max-w-md bg-picadas-card border-2 ${isAutoLive ? 'border-green-500 shadow-[0_0_15px_rgba(34,197,94,0.3)]' : 'border-transparent hover:border-picadas-pink'} rounded-2xl p-8 flex flex-col items-center gap-4 transition-all hover:scale-[1.02]">
+                            ${isAutoLive ? '<div class="absolute top-4 right-4 bg-green-500 text-white text-[10px] font-bold px-2 py-1 rounded-full animate-pulse flex items-center gap-1"><span class="w-2 h-2 bg-white rounded-full"></span> EN VIVO</div>' : ''}
+                            <i class="fas fa-car-side text-6xl text-gray-300"></i>
+                            <span class="text-3xl font-display font-bold tracking-wider">AUTOS</span>
+                        </button>
+
+                        <button onclick="APP_STATE.selectedCategory='motos'; render();" class="relative w-full max-w-md bg-picadas-card border-2 ${isMotoLive ? 'border-green-500 shadow-[0_0_15px_rgba(34,197,94,0.3)]' : 'border-transparent hover:border-picadas-pink'} rounded-2xl p-8 flex flex-col items-center gap-4 transition-all hover:scale-[1.02]">
+                            ${isMotoLive ? '<div class="absolute top-4 right-4 bg-green-500 text-white text-[10px] font-bold px-2 py-1 rounded-full animate-pulse flex items-center gap-1"><span class="w-2 h-2 bg-white rounded-full"></span> EN VIVO</div>' : ''}
+                            <i class="fas fa-motorcycle text-6xl text-gray-300"></i>
+                            <span class="text-3xl font-display font-bold tracking-wider">MOTOS</span>
+                        </button>
+                    </div>
+                `;
+            }
+
+            const categoryData = APP_STATE.championship[APP_STATE.selectedCategory];
+            const classButtons = categoryData.classes.map(cls => {
+                const timeDesc = CLASS_TIME_LIMITS[cls] || 'No definido';
+                const isLibre = timeDesc.toLowerCase().includes('sin límite') || timeDesc.toLowerCase().includes('libre');
+                const shortTime = timeDesc.replace('Tiempo tope: ', '');
+                
+                const isThisClassLive = APP_STATE.liveStatus.active && APP_STATE.liveStatus.category === APP_STATE.selectedCategory && APP_STATE.liveStatus.class === cls;
+                
+                return `
+                <button onclick="APP_STATE.selectedClass='${cls}'; setView('classDetail');" class="relative bg-picadas-card border ${isThisClassLive ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.2)]' : 'border-gray-800 hover:border-picadas-pink'} rounded-xl p-4 flex flex-col items-center justify-center gap-2 transition-all hover:bg-gray-900 group">
+                    ${isThisClassLive ? '<div class="absolute -top-2 -right-2 bg-green-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">EN VIVO</div>' : ''}
+                    <span class="font-bold text-white whitespace-nowrap text-lg group-hover:text-picadas-pink transition-colors">${cls}</span>
+                    <div class="flex items-center gap-1.5 text-gray-500 group-hover:text-gray-300 transition-colors w-full justify-center overflow-hidden">
+                        ${isLibre ? '<i class="fas fa-infinity text-[10px]"></i>' : '<i class="fas fa-stopwatch text-[10px]"></i>'}
+                        <span class="text-xs font-medium truncate">${shortTime}</span>
+                    </div>
+                </button>
+                `;
+            }).join('');
+
+            return `
+                <div class="flex-1 p-4 fade-in">
+                    <div class="flex items-center gap-3 mb-6 border-b border-gray-800 pb-4">
+                        <button onclick="APP_STATE.selectedCategory=null; render();" class="text-gray-400 hover:text-white p-2 border border-gray-700 rounded-lg bg-black">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <h2 class="text-2xl font-display font-bold text-white uppercase tracking-wide">
+                            CATEGORÍA ${APP_STATE.selectedCategory}
+                        </h2>
+                    </div>
+                    
+                    <p class="text-gray-400 mb-4 text-sm">Selecciona una clase para ver las posiciones e inscribirte:</p>
+                    
+                    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                        ${classButtons}
+                    </div>
+                </div>
+            `;
+        }
+
+        //        
+        function renderClassDetail() {
+            const cat = APP_STATE.selectedCategory;
+            const cls = APP_STATE.selectedClass;
+            const categoryData = APP_STATE.championship[cat];
+            
+            sortClassData(cat, cls);
+            const data = categoryData.data[cls] || [];
+            
+            const isAdmin = APP_STATE.user.role === 'admin';
+            
+            let timeLimitContent = '';
+            if (isAdmin) {
+                timeLimitContent = `<input type="text" value="${CLASS_TIME_LIMITS[cls] || ''}" onchange="saveClassTime('${cls}', this.value)" class="bg-transparent border-b border-dashed border-gray-600 text-gray-400 text-sm focus:outline-none focus:border-picadas-pink focus:text-white px-1 w-48" placeholder="Ej: Tiempo tope: 12.00 seg">`;
+            } else {
+                timeLimitContent = `<span class="text-gray-400 text-sm">${CLASS_TIME_LIMITS[cls] || 'Tiempo no definido'}</span>`;
+            }
+
+            let headers = `
+                <th class="sticky-col-1 bg-picadas-card px-3 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider w-12">Pos</th>
+                <th class="bg-picadas-card px-3 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider w-16">N°</th>
+                <th class="sticky-col-2 bg-picadas-card px-4 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider min-w-[150px] border-r border-gray-800">Piloto</th>
+            `;
+            categoryData.dates.forEach((date, i) => {
+                headers += `<th class="bg-picadas-card px-2 py-3 text-center text-xs font-bold text-gray-400 uppercase tracking-wider min-w-[80px]">${date}</th>`;
+            });
+            headers += `<th class="bg-picadas-card px-4 py-3 text-center text-xs font-bold text-picadas-pink uppercase tracking-wider min-w-[80px]">Total</th>`;
+
+            let rows = '';
+            if (data.length === 0) {
+                rows = `<tr><td colspan="${categoryData.dates.length + 4}" class="px-4 py-8 text-center text-gray-500">No hay pilotos inscriptos en esta clase.</td></tr>`;
+            } else {
+                data.forEach((row, index) => {
+                    const total = calculateTotalPoints(row.dates);
+                    let positionClass = "text-gray-400";
+                    if (index === 0) positionClass = "text-yellow-500 font-bold text-lg"; 
+                    else if (index === 1) positionClass = "text-gray-300 font-bold text-lg"; 
+                    else if (index === 2) positionClass = "text-orange-600 font-bold text-lg"; 
+
+                    let rowHtml = `
+                        <tr class="border-b border-gray-800 hover:bg-gray-900/50 transition-colors">
+                            <td class="sticky-col-1 bg-[#151518] px-3 py-3 whitespace-nowrap text-center ${positionClass}">${index + 1}</td>
+                            <td class="px-3 py-3 whitespace-nowrap text-gray-300 font-mono">${row.ins}</td>
+                            <td class="sticky-col-2 bg-[#151518] px-4 py-3 whitespace-nowrap font-bold text-white border-r border-gray-800">${row.pilot}</td>
+                    `;
+                    
+                    categoryData.dates.forEach((date, dateIndex) => {
+                        const val = row.dates[dateIndex] || '';
+                        if (isAdmin) {
+                            rowHtml += `<td class="px-2 py-3 whitespace-nowrap"><input type="number" class="table-input" value="${val}" onchange="updatePilotScore('${cat}', '${cls}', ${row.id}, ${dateIndex}, this.value)"></td>`;
+                        } else {
+                            rowHtml += `<td class="px-2 py-3 whitespace-nowrap text-center text-gray-400">${val || '-'}</td>`;
+                        }
+                    });
+
+                    rowHtml += `<td class="px-4 py-3 whitespace-nowrap text-center font-bold text-picadas-pink">${total}</td></tr>`;
+                    rows += rowHtml;
+                });
+            }
+
+            let adminControls = '';
+            let userControls = '';
+            
+            if (isAdmin) {
+                adminControls = `
+                    <div class="flex flex-wrap gap-2 mb-4 bg-gray-900 p-3 rounded-xl border border-gray-800">
+                        <button onclick="addChampionshipDate('${cat}')" class="text-xs bg-gray-800 hover:bg-gray-700 text-white px-3 py-2 rounded flex items-center gap-1 border border-gray-700"><i class="fas fa-plus"></i> Añadir Fecha</button>
+                        <button onclick="setView('adminEnrollment')" class="text-xs bg-picadas-pink hover:bg-picadas-pinkDark text-white px-3 py-2 rounded flex items-center gap-1"><i class="fas fa-user-plus"></i> Inscribir Piloto</button>
+                        <button onclick="resetChampionshipYear('${cat}')" class="text-xs bg-red-900 hover:bg-red-800 text-white px-3 py-2 rounded flex items-center gap-1 ml-auto border border-red-700"><i class="fas fa-undo"></i> Reiniciar Año</button>
+                    </div>
+                `;
+            } else {
+                const isThisLive = APP_STATE.liveStatus.active && APP_STATE.liveStatus.category === cat && APP_STATE.liveStatus.class === cls;
+                
+                userControls = `
+                    <div class="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black via-black to-transparent z-20 pb-8">
+                        <div class="max-w-4xl mx-auto flex gap-3">
+                            <button onclick="setView('enrollment')" class="flex-1 bg-picadas-pink hover:bg-picadas-pinkDark text-white font-bold py-4 rounded-xl shadow-[0_0_15px_rgba(210,0,179,0.3)] transition-colors uppercase tracking-wider flex justify-center items-center gap-2">
+                                <i class="fas fa-flag-checkered"></i> INSCRIBIRME
+                            </button>
+                            ${isThisLive ? `<div class="bg-green-500 text-white font-bold px-4 rounded-xl flex items-center justify-center animate-pulse"><i class="fas fa-broadcast-tower mr-2"></i> EN PISTA</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="flex-1 flex flex-col h-full fade-in relative ${!isAdmin ? 'pb-24' : 'pb-6'}">
+                    <div class="p-4 border-b border-gray-800 shrink-0">
+                        <div class="flex items-center gap-3 mb-1">
+                            <h2 class="text-2xl font-display font-bold text-white uppercase">${cls} <span class="text-gray-500 text-lg">/ ${cat}</span></h2>
+                        </div>
+                        ${timeLimitContent}
+                    </div>
+                    
+                    <div class="p-4 shrink-0">
+                        ${adminControls}
+                    </div>
+
+                    <div class="flex-1 overflow-hidden px-4">
+                        <div class="h-full overflow-auto custom-scrollbar bg-[#151518] rounded-xl border border-gray-800 shadow-inner">
+                            <table class="min-w-full border-collapse">
+                                <thead class="sticky top-0 z-20">
+                                    <tr>${headers}</tr>
+                                </thead>
+                                <tbody class="bg-[#151518] divide-y divide-gray-800">
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    ${userControls}
+                </div>
+            `;
+        }
+
+        //        
+        function renderEnrollment() {
+            const cls = APP_STATE.selectedClass;
+            const price = APP_STATE.selectedCategory === 'autos' ? APP_STATE.prices.autoEnrollment : APP_STATE.prices.motoEnrollment;
+
+            return `
+                <div class="flex-1 p-6 fade-in flex flex-col justify-center">
+                    <div class="max-w-md mx-auto w-full">
+                        <div class="mb-6">
+                            <span class="inline-block bg-gray-800 text-gray-300 text-xs px-2 py-1 rounded font-bold uppercase mb-2">Inscripción Piloto</span>
+                            <h2 class="text-3xl font-display font-bold text-white">${cls}</h2>
+                            <p class="text-gray-400 text-sm mt-1">Completa tus datos de salud y domicilio para la carrera.</p>
+                        </div>
+                        
+                        <form onsubmit="handleEnrollmentStep1(event)" class="space-y-4 bg-picadas-card p-6 rounded-2xl border border-gray-800 shadow-lg">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Nro. Documento</label>
+                                <input type="text" value="${APP_STATE.user.doc}" disabled class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-gray-900 text-gray-500 cursor-not-allowed">
+                                <p class="text-xs text-gray-500 mt-1"><i class="fas fa-lock"></i> Autocompletado desde tu cuenta</p>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Dirección / Localidad</label>
+                                <input type="text" id="enrollAddress" required placeholder="Ej: San Martin 123, Concordia" class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Grupo Sanguíneo</label>
+                                <select id="enrollBlood" required class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink appearance-none">
+                                    <option value="" disabled selected>Seleccione...</option>
+                                    <option value="A+">A+</option>
+                                    <option value="A-">A-</option>
+                                    <option value="B+">B+</option>
+                                    <option value="B-">B-</option>
+                                    <option value="AB+">AB+</option>
+                                    <option value="AB-">AB-</option>
+                                    <option value="O+">O+</option>
+                                    <option value="O-">O-</option>
+                                </select>
+                            </div>
+
+                            <div class="mt-6 p-4 bg-black rounded-xl border border-gray-800 flex justify-between items-center">
+                                <span class="text-gray-400 text-sm">Valor Inscripción:</span>
+                                <span class="text-xl font-bold text-green-500">$${price}</span>
+                            </div>
+
+                            <button type="submit" class="w-full py-4 px-4 rounded-xl shadow-sm font-bold text-white bg-picadas-pink hover:bg-picadas-pinkDark transition-colors mt-4 flex items-center justify-center gap-2">
+                                CONTINUAR AL PAGO <i class="fas fa-arrow-right"></i>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderPayment() {
+            const price = APP_STATE.selectedCategory === 'autos' ? APP_STATE.prices.autoEnrollment : APP_STATE.prices.motoEnrollment;
+            
+            return `
+                <div class="flex-1 p-6 fade-in flex flex-col justify-center">
+                    <div class="max-w-md mx-auto w-full">
+                        <div class="text-center mb-6">
+                            <i class="fas fa-university text-4xl text-gray-400 mb-4"></i>
+                            <h2 class="text-2xl font-display font-bold text-white">Pago por Transferencia</h2>
+                            <p class="text-gray-400 text-sm mt-2">Transfiere el monto exacto a la siguiente cuenta para confirmar tu inscripción.</p>
+                        </div>
+                        
+                        <div class="bg-picadas-card p-6 rounded-2xl border border-gray-800 shadow-lg space-y-6">
+                            <div class="text-center">
+                                <span class="block text-gray-500 text-sm uppercase tracking-wider mb-1">Monto a transferir</span>
+                                <span class="text-4xl font-display font-bold text-green-500">$${price}</span>
+                            </div>
+
+                            <div class="space-y-3 bg-black p-4 rounded-xl border border-gray-800 relative">
+                                <button onclick="copyCBU()" class="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors" title="Copiar"><i class="far fa-copy"></i></button>
+                                <div>
+                                    <span class="block text-xs text-gray-500">Banco</span>
+                                    <span class="font-bold text-white">Banco Entre Ríos</span>
+                                </div>
+                                <div>
+                                    <span class="block text-xs text-gray-500">Titular</span>
+                                    <span class="font-bold text-white">Picadas Concordia SRL</span>
+                                </div>
+                                <div>
+                                    <span class="block text-xs text-gray-500">CBU</span>
+                                    <span id="cbuText" class="font-bold text-picadas-pink tracking-widest">0000003100012345678901</span>
+                                </div>
+                                <div>
+                                    <span class="block text-xs text-gray-500">Alias</span>
+                                    <span class="font-bold text-white">PICADAS.CONCORDIA.ER</span>
+                                </div>
+                            </div>
+
+                            <button onclick="finishUserEnrollment()" class="w-full py-4 px-4 rounded-xl shadow-[0_0_15px_rgba(34,197,94,0.3)] font-bold text-white bg-green-600 hover:bg-green-700 transition-colors mt-4 flex items-center justify-center gap-2 text-lg">
+                                YA TRANSFERÍ <i class="fas fa-check-circle"></i>
+                            </button>
+                            
+                            <p class="text-xs text-gray-500 text-center">Tu número de piloto se asignará en torre el día del evento.</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAdminEnrollment() {
+            const cls = APP_STATE.selectedClass;
+            const price = APP_STATE.selectedCategory === 'autos' ? APP_STATE.prices.autoEnrollment : APP_STATE.prices.motoEnrollment;
+
+            return `
+                <div class="flex-1 p-6 fade-in flex flex-col justify-center">
+                    <div class="max-w-md mx-auto w-full">
+                        <div class="mb-6">
+                            <span class="inline-block bg-picadas-pink text-white text-xs px-2 py-1 rounded font-bold uppercase mb-2">Panel Admin</span>
+                            <h2 class="text-3xl font-display font-bold text-white">Inscribir en ${cls}</h2>
+                            <p class="text-gray-400 text-sm mt-1">Registro manual en puerta/torre.</p>
+                        </div>
+                        
+                        <form onsubmit="handleAdminEnrollmentSubmit(event)" class="space-y-4 bg-picadas-card p-6 rounded-2xl border border-gray-800 shadow-lg">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Nro. Documento</label>
+                                <input type="number" id="adminEnrollDoc" required class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink" placeholder="DNI del piloto">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Nombre y Apellido</label>
+                                <input type="text" id="adminEnrollName" required class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink" placeholder="Nombre completo">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Nro. de Piloto (Competencia)</label>
+                                <input type="text" id="adminEnrollNumber" required class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink font-bold text-lg" placeholder="Ej: 99">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Método de Pago</label>
+                                <select id="adminEnrollPayment" required class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink appearance-none font-bold">
+                                    <option value="Efectivo">Efectivo ($${price})</option>
+                                    <option value="Transferencia">Transferencia ($${price})</option>
+                                </select>
+                            </div>
+
+                            <button type="submit" class="w-full py-4 mt-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow-lg transition-colors flex justify-center items-center gap-2 text-lg">
+                                REGISTRAR Y COBRAR <i class="fas fa-check"></i>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            `;
+        }
+
+        //
+        function renderLiveEvent() {
+            if (APP_STATE.user.role !== 'admin') return '';
+
+            let tabContent = '';
+            switch(APP_STATE.liveTab) {
+                case 'entrada': tabContent = renderLiveEntrada(); break;
+                case 'torre': tabContent = renderLiveTorre(); break;
+                case 'evento': tabContent = renderLiveControl(); break;
+                case 'valores': tabContent = renderLiveValores(); break;
+            }
+
+            return `
+                <div class="flex-1 flex flex-col fade-in">
+                    <div class="bg-picadas-card border-b border-gray-800 p-2 overflow-x-auto custom-scrollbar">
+                        <div class="flex gap-2 min-w-max">
+                            <button onclick="APP_STATE.liveTab='entrada'; render();" class="px-4 py-2 font-bold text-sm rounded-lg transition-colors ${APP_STATE.liveTab === 'entrada' ? 'bg-picadas-pink text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-ticket-alt mr-1"></i> Entrada</button>
+                            <button onclick="APP_STATE.liveTab='torre'; render();" class="px-4 py-2 font-bold text-sm rounded-lg transition-colors ${APP_STATE.liveTab === 'torre' ? 'bg-picadas-pink text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-flag-checkered mr-1"></i> Torre</button>
+                            <button onclick="APP_STATE.liveTab='evento'; render();" class="px-4 py-2 font-bold text-sm rounded-lg transition-colors ${APP_STATE.liveTab === 'evento' ? 'bg-picadas-pink text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-broadcast-tower mr-1"></i> Evento</button>
+                            <button onclick="APP_STATE.liveTab='valores'; render();" class="px-4 py-2 font-bold text-sm rounded-lg transition-colors ${APP_STATE.liveTab === 'valores' ? 'bg-picadas-pink text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-dollar-sign mr-1"></i> Valores</button>
+                        </div>
+                    </div>
+                    <div class="flex-1 p-4 pb-20">
+                        ${tabContent}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderLiveEntrada() {
+            return `
+                <div class="max-w-md mx-auto space-y-6">
+                    <h2 class="text-2xl font-display font-bold text-white mb-2">Control de Entrada</h2>
+                    
+                    <div class="bg-picadas-card p-6 rounded-2xl border border-gray-800 shadow-lg space-y-4">
+                        <div id="espectadorSection" class="space-y-4 transition-all">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Cantidad de Entradas</label>
+                                <div class="flex items-center gap-2">
+                                    <input type="number" id="gateQty" value="1" min="1" onchange="calculateGateTotal()" class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink text-lg font-bold">
+                                    <span class="text-gray-500 text-sm whitespace-nowrap">x $${APP_STATE.prices.ticket}</span>
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center justify-between bg-gray-900/50 p-3 rounded-lg border border-gray-800">
+                                <label class="text-sm text-gray-300 font-bold">¿Desea Estacionamiento?</label>
+                                <input type="checkbox" id="gateParking" onchange="calculateGateTotal()" class="w-5 h-5 accent-picadas-pink rounded">
+                            </div>
+                        </div>
+
+                        <div class="border-t border-gray-800 my-4 pt-4">
+                            <label class="flex items-center gap-3 cursor-pointer p-3 bg-picadas-pink/10 rounded-xl border border-picadas-pink/30 hover:bg-picadas-pink/20 transition-colors">
+                                <input type="checkbox" id="gateIsRacer" onchange="toggleGateRacerMode()" class="w-6 h-6 accent-picadas-pink rounded">
+                                <span class="text-white font-bold text-lg">VA A CORRER</span>
+                            </label>
+                        </div>
+
+                        <div id="racerSection" class="hidden space-y-4 bg-gray-900 p-4 rounded-xl border border-gray-700 fade-in">
+                            <p class="text-xs text-picadas-pink font-bold uppercase"><i class="fas fa-info-circle"></i> Al correr, solo abona seguro.</p>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Número de Piloto / DNI</label>
+                                <input type="text" placeholder="Ej: 99 o DNI..." class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink">
+                            </div>
+                            <button onclick="setView('categories'); APP_STATE.selectedCategory=null; showToast('Navegando a categorías para inscripción manual...', 'info');" class="w-full text-xs py-2 border border-gray-600 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800"><i class="fas fa-user-plus"></i> Inscribir piloto desde cero</button>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">Método de Pago</label>
+                            <select id="gatePayment" class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink appearance-none font-bold">
+                                <option value="Efectivo">Efectivo</option>
+                                <option value="Transferencia">Transferencia</option>
+                            </select>
+                        </div>
+
+                        <div class="bg-black p-4 rounded-xl border border-gray-700 text-center mt-4">
+                            <span class="block text-gray-500 text-xs uppercase tracking-widest mb-1">Total a Cobrar</span>
+                            <span id="gateTotal" class="text-4xl font-display font-bold text-green-500">$5000</span>
+                        </div>
+
+                        <button onclick="processGatePayment()" class="w-full py-4 mt-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow-lg transition-colors flex justify-center items-center gap-2 text-lg">
+                            COBRAR <i class="fas fa-check-circle"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderLiveTorre() {
+            return `
+                <div class="max-w-md mx-auto space-y-6">
+                    <h2 class="text-2xl font-display font-bold text-white mb-2">Inscripción / Torre</h2>
+                    
+                    <div class="bg-picadas-card p-6 rounded-2xl border border-gray-800 shadow-lg space-y-4">
+                        <div class="grid grid-cols-2 gap-2">
+                            <button onclick="document.getElementById('torreType').value='auto'; updateTorreTotal();" class="py-3 border border-gray-700 rounded-xl hover:border-picadas-pink focus:border-picadas-pink focus:bg-gray-900 transition-colors text-white font-bold"><i class="fas fa-car-side text-gray-400 mr-2"></i> Auto</button>
+                            <button onclick="document.getElementById('torreType').value='moto'; updateTorreTotal();" class="py-3 border border-gray-700 rounded-xl hover:border-picadas-pink focus:border-picadas-pink focus:bg-gray-900 transition-colors text-white font-bold"><i class="fas fa-motorcycle text-gray-400 mr-2"></i> Moto</button>
+                            <input type="hidden" id="torreType" value="auto">
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">Piloto (N° o Nombre)</label>
+                            <input type="text" placeholder="Buscar piloto..." class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink">
+                        </div>
+
+                        <div class="flex items-center gap-4 py-2">
+                            <label class="flex items-center gap-2 cursor-pointer text-gray-300">
+                                <input type="radio" name="torreMode" value="primera" checked onchange="updateTorreTotal()" class="w-5 h-5 accent-picadas-pink">
+                                Primera Vez
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer text-gray-300">
+                                <input type="radio" name="torreMode" value="reenganche" onchange="updateTorreTotal()" class="w-5 h-5 accent-picadas-pink">
+                                Reenganche
+                            </label>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">Método de Pago</label>
+                            <select id="torrePayment" class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink appearance-none font-bold">
+                                <option value="Efectivo">Efectivo</option>
+                                <option value="Transferencia">Transferencia</option>
+                            </select>
+                        </div>
+
+                        <div class="bg-black p-4 rounded-xl border border-gray-700 text-center mt-4">
+                            <span class="block text-gray-500 text-xs uppercase tracking-widest mb-1">Total a Cobrar</span>
+                            <span id="torreTotal" class="text-4xl font-display font-bold text-green-500">$${APP_STATE.prices.autoEnrollment}</span>
+                        </div>
+
+                        <button onclick="processTorrePayment()" class="w-full py-4 mt-2 bg-picadas-pink hover:bg-picadas-pinkDark text-white font-bold rounded-xl shadow-[0_0_15px_rgba(210,0,179,0.4)] transition-colors flex justify-center items-center gap-2 text-lg">
+                            REGISTRAR EN TORRE <i class="fas fa-flag-checkered"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderLiveControl() {
+            const renderClasses = (category, title, icon) => {
+                const isCatLive = APP_STATE.liveStatus.active && APP_STATE.liveStatus.category === category;
+                return `
+                    <div class="bg-picadas-card p-4 rounded-xl border ${isCatLive ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.1)]' : 'border-gray-800'} mb-6">
+                        <h3 class="font-display font-bold text-xl text-white mb-4 flex items-center gap-2 uppercase tracking-wider">
+                            <i class="fas ${icon} text-picadas-pink"></i> ${title}
+                        </h3>
+                        <div class="space-y-2">
+                            ${APP_STATE.championship[category].classes.map(cls => {
+                                const isThisLive = isCatLive && APP_STATE.liveStatus.class === cls;
+                                return `
+                                    <div class="flex items-center justify-between p-3 rounded-lg ${isThisLive ? 'bg-green-900/40 border border-green-500/50' : 'bg-gray-900 border border-gray-800'}">
+                                        <span class="font-bold text-white">${cls}</span>
+                                        ${isThisLive 
+                                            ? `<button onclick="stopLiveEvent()" class="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 animate-pulse"><i class="fas fa-stop"></i> DETENER</button>`
+                                            : `<button onclick="startLiveEvent('${category}', '${cls}')" class="bg-gray-800 hover:bg-green-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-700 transition-colors"><i class="fas fa-play"></i> INICIAR</button>`
+                                        }
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                `;
+            };
+
+            return `
+                <div class="max-w-2xl mx-auto">
+                    <div class="flex items-center justify-between mb-6 border-b border-gray-800 pb-2">
+                        <h2 class="text-2xl font-display font-bold text-white">Transmisión en Vivo</h2>
+                        ${APP_STATE.liveStatus.active 
+                            ? `<span class="bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-full animate-pulse flex items-center gap-2 shadow-[0_0_10px_rgba(34,197,94,0.5)]"><span class="w-2 h-2 bg-white rounded-full"></span> AL AIRE</span>`
+                            : `<span class="bg-gray-800 text-gray-400 text-xs font-bold px-3 py-1 rounded-full border border-gray-700">SIN ACTIVIDAD</span>`
+                        }
+                    </div>
+                    <p class="text-sm text-gray-400 mb-6">Selecciona qué clase está corriendo ahora mismo. Esto se actualizará en tiempo real en la app de todos los usuarios.</p>
+                    
+                    ${renderClasses('motos', 'Categoría Motos', 'fa-motorcycle')}
+                    ${renderClasses('autos', 'Categoría Autos', 'fa-car-side')}
+                </div>
+            `;
+        }
+
+        function renderLiveValores() {
+            return `
+                <div class="max-w-md mx-auto space-y-6">
+                    <h2 class="text-2xl font-display font-bold text-white mb-2">Configuración de Valores</h2>
+                    <p class="text-sm text-gray-400 mb-4">Ajusta los precios para la puerta y torre del evento actual.</p>
+                    
+                    <form onsubmit="saveLivePrices(event)" class="bg-picadas-card p-6 rounded-2xl border border-gray-800 shadow-lg space-y-4">
+                        
+                        <div class="space-y-3 border-b border-gray-800 pb-4">
+                            <h4 class="font-bold text-white text-sm uppercase tracking-wider text-picadas-pink">Entrada General</h4>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-400 mb-1">Entrada Espectador ($)</label>
+                                <input type="number" id="valTicket" value="${APP_STATE.prices.ticket}" required class="block w-full px-3 py-2 border border-gray-700 rounded-lg bg-black text-white focus:outline-none focus:border-picadas-pink">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-400 mb-1">Estacionamiento ($)</label>
+                                <input type="number" id="valParking" value="${APP_STATE.prices.parking}" required class="block w-full px-3 py-2 border border-gray-700 rounded-lg bg-black text-white focus:outline-none focus:border-picadas-pink">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-400 mb-1">Seguro Piloto (Puerta) ($)</label>
+                                <input type="number" id="valInsurance" value="${APP_STATE.prices.insurance}" required class="block w-full px-3 py-2 border border-gray-700 rounded-lg bg-black text-white focus:outline-none focus:border-picadas-pink">
+                            </div>
+                        </div>
+
+                        <div class="space-y-3 pt-2">
+                            <h4 class="font-bold text-white text-sm uppercase tracking-wider text-picadas-pink">Torre / Inscripciones</h4>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-400 mb-1">Inscripción Auto ($)</label>
+                                <input type="number" id="valAuto" value="${APP_STATE.prices.autoEnrollment}" required class="block w-full px-3 py-2 border border-gray-700 rounded-lg bg-black text-white focus:outline-none focus:border-picadas-pink">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-400 mb-1">Inscripción Moto ($)</label>
+                                <input type="number" id="valMoto" value="${APP_STATE.prices.motoEnrollment}" required class="block w-full px-3 py-2 border border-gray-700 rounded-lg bg-black text-white focus:outline-none focus:border-picadas-pink">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-400 mb-1">Reenganche (General) ($)</label>
+                                <input type="number" id="valReentry" value="${APP_STATE.prices.reentry}" required class="block w-full px-3 py-2 border border-gray-700 rounded-lg bg-black text-white focus:outline-none focus:border-picadas-pink">
+                            </div>
+                        </div>
+
+                        <button type="submit" class="w-full py-3 mt-4 bg-gray-100 hover:bg-white text-black font-bold rounded-xl transition-colors">
+                            GUARDAR VALORES
+                        </button>
+                    </form>
+                </div>
+            `;
+        }
+
+        //
+        function renderSupport() {
+            return `
+                <div class="flex-1 p-6 fade-in max-w-2xl mx-auto w-full">
+                    <h2 class="text-2xl font-display font-bold text-white mb-6 uppercase flex items-center gap-2">
+                        <i class="fas fa-headset text-picadas-pink"></i> Centro de Soporte
+                    </h2>
+
+                    <div class="space-y-6">
+                        <div class="bg-picadas-card p-6 rounded-2xl border border-gray-800">
+                            <h3 class="text-xl font-bold text-white mb-2"><i class="fas fa-wrench text-gray-400 mr-2"></i> Problemas Técnicos</h3>
+                            <p class="text-sm text-gray-400 mb-4">¿Tienes problemas con la app, tu cuenta o un pago?</p>
+                            <form onsubmit="handleSupportSubmit(event, 'técnico')" class="space-y-3">
+                                <textarea required rows="3" class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink resize-none" placeholder="Describe tu problema aquí..."></textarea>
+                                <button type="submit" class="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors">Enviar Reporte</button>
+                            </form>
+                        </div>
+
+                        <div class="bg-picadas-card p-6 rounded-2xl border border-gray-800">
+                            <h3 class="text-xl font-bold text-white mb-2"><i class="far fa-comment-alt text-gray-400 mr-2"></i> Opiniones y Quejas</h3>
+                            <p class="text-sm text-gray-400 mb-4">¿Algo no te gustó del evento o la organización? Envía un mensaje directo al administrador.</p>
+                            <form onsubmit="handleSupportSubmit(event, 'inconformidad')" class="space-y-3">
+                                <textarea required rows="3" class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink resize-none" placeholder="Escribe tu mensaje..."></textarea>
+                                <button type="submit" class="bg-picadas-pink hover:bg-picadas-pinkDark text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors">Enviar Mensaje a Admin</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- HANDLERS ---
+        function handleLogin(e) {
+            e.preventDefault();
+            const doc = document.getElementById('loginDoc').value;
+            const pass = document.getElementById('loginPass').value;
+
+            // En el futuro, aquí se usará: auth.signInWithEmailAndPassword(...)
+            const user = APP_STATE.registeredUsers.find(u => u.doc === doc && u.password === pass);
+
+            if (user) {
+                APP_STATE.user = user;
+                setView('dashboard');
+            } else {
+                showToast('Documento o contraseña incorrectos', 'error');
+            }
+        }
+
+        function handleRegister(e) {
+            e.preventDefault();
+            const doc = document.getElementById('regDoc').value;
+            
+            if (APP_STATE.registeredUsers.find(u => u.doc === doc)) {
+                showToast('Usuario ya registrado', 'error');
+                return;
+            }
+
+            const newUser = {
+                doc: doc,
+                name: document.getElementById('regName').value,
+                email: document.getElementById('regEmail').value,
+                phone: document.getElementById('regPhone').value,
+                password: document.getElementById('regPass').value,
+                role: 'user'
+            };
+
+            // En el futuro, aquí se usará: db.collection("users").add(...)
+            APP_STATE.registeredUsers.push(newUser);
+            showToast('¡Registro correcto! Inicia sesión', 'success');
+            setView('login');
+        }
+
+        function handleRecoveryStep1(e) {
+            e.preventDefault();
+            const doc = document.getElementById('recDoc').value;
+            const email = document.getElementById('recEmail').value;
+            const phone = document.getElementById('recPhone').value;
+
+            const user = APP_STATE.registeredUsers.find(u => u.doc === doc);
+            if (!user) {
+                showToast('Documento no encontrado', 'error');
+                return;
+            }
+
+            if (email) {
+                showToast('Link enviado al mail. (Simulado: redirigiendo...)', 'info');
+                setTimeout(() => {
+                    document.getElementById('recoveryMessage').innerText = "Ingresa tu nueva contraseña.";
+                    document.getElementById('codeContainer').style.display = 'none';
+                    setView('recoveryStep2');
+                }, 1500);
+            } else if (phone) {
+                showToast('Código SMS enviado. (Simulado: ingresa cualquiera)', 'info');
+                setView('recoveryStep2');
+            }
+        }
+
+        function handleRecoveryStep2(e) {
+            e.preventDefault();
+            const pass1 = document.getElementById('recNewPass').value;
+            const pass2 = document.getElementById('recNewPassConfirm').value;
+
+            if (pass1 !== pass2) {
+                showToast('Las contraseñas no coinciden', 'error');
+                return;
+            }
+
+            showToast('Contraseña cambiada. Inicie sesión', 'success');
+            setView('login');
+        }
+
+        function handleLogout() {
+            APP_STATE.user = null;
+            APP_STATE.selectedCategory = null;
+            APP_STATE.selectedClass = null;
+            setView('login');
+        }
+
+        //        
+        function handleEnrollmentStep1(e) {
+            e.preventDefault();
+            APP_STATE.enrollmentData = {
+                address: document.getElementById('enrollAddress').value,
+                blood: document.getElementById('enrollBlood').value
+            };
+            setView('payment');
+        }
+
+        function handleSupportSubmit(e, type) {
+            e.preventDefault();
+            showToast(`Mensaje de ${type} enviado correctamente.`, 'success');
+            e.target.reset();
+        }
+
+        function copyCBU() {
+            const tempInput = document.createElement("input");
+            tempInput.value = "0000003100012345678901";
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand("copy");
+            document.body.removeChild(tempInput);
+            showToast('CBU copiado al portapapeles', 'success');
+        }
+
+        function finishUserEnrollment() {
+            const cat = APP_STATE.selectedCategory;
+            const cls = APP_STATE.selectedClass;
+            
+            const newPilot = {
+                id: Date.now(),
+                ins: 'Pte',
+                pilot: APP_STATE.user.name,
+                dates: new Array(APP_STATE.championship[cat].dates.length).fill('')
+            };
+            
+            // En Firebase se usará: db.collection("championship").doc(cat)...
+            APP_STATE.championship[cat].data[cls].push(newPilot);
+            
+            showToast('¡Inscripción pendiente de confirmación en torre!', 'success');
+            setView('classDetail');
+        }
+
+        function handleAdminEnrollmentSubmit(e) {
+            e.preventDefault();
+            const name = document.getElementById('adminEnrollName').value;
+            const number = document.getElementById('adminEnrollNumber').value;
+            const payment = document.getElementById('adminEnrollPayment').value;
+            
+            const cat = APP_STATE.selectedCategory;
+            const cls = APP_STATE.selectedClass;
+
+            const newPilot = {
+                id: Date.now(),
+                ins: number,
+                pilot: name,
+                dates: new Array(APP_STATE.championship[cat].dates.length).fill('')
+            };
+            
+            APP_STATE.championship[cat].data[cls].push(newPilot);
+            
+            showToast(`Piloto inscripto correctamente. Pago vía: ${payment}`, 'success');
+            setView('classDetail');
+        }
+
+        function saveClassTime(cls, val) {
+            CLASS_TIME_LIMITS[cls] = val;
+            showToast('Tiempo actualizado', 'success');
+        }
+
+        function updatePilotScore(category, className, pilotId, dateIndex, value) {
+            const data = APP_STATE.championship[category].data[className];
+            const pilot = data.find(p => p.id === pilotId);
+            if (pilot) {
+                pilot.dates[dateIndex] = value === '' ? '' : parseInt(value) || 0;
+                render(); 
+            }
+        }
+
+        function addChampionshipDate(category) {
+            const count = APP_STATE.championship[category].dates.length + 1;
+            APP_STATE.championship[category].dates.push(`Fecha ${count}`);
+            
+            Object.values(APP_STATE.championship[category].data).forEach(classData => {
+                classData.forEach(pilot => pilot.dates.push(''));
+            });
+            
+            render();
+            showToast(`Fecha ${count} añadida`, 'success');
+        }
+
+        function resetChampionshipYear(category) {
+            if(confirm("ATENCIÓN: Esto borrará todos los puntos y dejará solo 1 fecha inicial. Los pilotos se mantendrán. ¿Estás seguro?")) {
+                APP_STATE.championship[category].dates = ['Fecha 1'];
+                Object.values(APP_STATE.championship[category].data).forEach(classData => {
+                    classData.forEach(pilot => {
+                        pilot.dates = [''];
+                    });
+                });
+                render();
+                showToast('Año reiniciado correctamente', 'info');
+            }
+        }
+
+        //        
+        function calculateGateTotal() {
+            const isRacer = document.getElementById('gateIsRacer').checked;
+            let total = 0;
+            
+            if (isRacer) {
+                total = APP_STATE.prices.insurance;
+            } else {
+                const qty = parseInt(document.getElementById('gateQty').value) || 1;
+                const parking = document.getElementById('gateParking').checked ? APP_STATE.prices.parking : 0;
+                total = (qty * APP_STATE.prices.ticket) + parking;
+            }
+            
+            document.getElementById('gateTotal').innerText = `$${total}`;
+        }
+
+        function toggleGateRacerMode() {
+            const isRacer = document.getElementById('gateIsRacer').checked;
+            const espSection = document.getElementById('espectadorSection');
+            const racerSection = document.getElementById('racerSection');
+            
+            if(isRacer) {
+                espSection.classList.add('hidden');
+                racerSection.classList.remove('hidden');
+            } else {
+                espSection.classList.remove('hidden');
+                racerSection.classList.add('hidden');
+            }
+            calculateGateTotal();
+        }
+
+        function processGatePayment() {
+            const isRacer = document.getElementById('gateIsRacer').checked;
+            const total = document.getElementById('gateTotal').innerText;
+            const method = document.getElementById('gatePayment').value;
+            
+            const type = isRacer ? 'Piloto (Seguro)' : 'Espectador';
+            showToast(`Cobro exitoso: ${type} - ${total} en ${method}`, 'success');
+            
+            document.getElementById('gateQty').value = 1;
+            document.getElementById('gateParking').checked = false;
+            document.getElementById('gateIsRacer').checked = false;
+            toggleGateRacerMode();
+        }
+
+        function updateTorreTotal() {
+            const type = document.getElementById('torreType').value;
+            const mode = document.querySelector('input[name="torreMode"]:checked').value;
+            
+            let total = 0;
+            if (mode === 'reenganche') {
+                total = APP_STATE.prices.reentry;
+            } else {
+                total = type === 'auto' ? APP_STATE.prices.autoEnrollment : APP_STATE.prices.motoEnrollment;
+            }
+            
+            document.getElementById('torreTotal').innerText = `$${total}`;
+        }
+
+        function processTorrePayment() {
+            const total = document.getElementById('torreTotal').innerText;
+            const method = document.getElementById('torrePayment').value;
+            showToast(`Inscripción registrada en torre: ${total} en ${method}`, 'success');
+        }
+
+        function saveLivePrices(e) {
+            e.preventDefault();
+            APP_STATE.prices.ticket = parseInt(document.getElementById('valTicket').value);
+            APP_STATE.prices.parking = parseInt(document.getElementById('valParking').value);
+            APP_STATE.prices.insurance = parseInt(document.getElementById('valInsurance').value);
+            APP_STATE.prices.autoEnrollment = parseInt(document.getElementById('valAuto').value);
+            APP_STATE.prices.motoEnrollment = parseInt(document.getElementById('valMoto').value);
+            APP_STATE.prices.reentry = parseInt(document.getElementById('valReentry').value);
+            
+            // En el futuro, aquí se guardarán los precios en Firebase DB
+            showToast('Valores actualizados correctamente.', 'success');
+        }
+
+        function startLiveEvent(category, cls) {
+            // Cuando uses Firebase, este cambio se enviará a la base de datos
+            // db.collection("event").doc("status").update({ ... })
+            APP_STATE.liveStatus = {
+                active: true,
+                category: category,
+                class: cls
+            };
+            render();
+            showToast(`¡Transmisión iniciada para ${cls}!`, 'success');
+        }
+
+        function stopLiveEvent() {
+            APP_STATE.liveStatus.active = false;
+            render();
+            showToast('Evento en vivo detenido.', 'info');
+        }
+
+        // --- INIT APP ---
+        function initApp() {
+            // Nota Firebase: Aquí agregarás un listener para saber si el usuario ya inició sesión
+            // auth.onAuthStateChanged(user => { if(user) setView('dashboard') else setView('login') })
+            if (APP_STATE.user) {
+                setView('dashboard');
+            } else {
+                setView('login');
+            }
+        }
+
+        window.onload = initApp;
+    </script>
+</body>
+</html>
