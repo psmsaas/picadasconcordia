@@ -156,35 +156,30 @@
     <div id="toast-container"></div>
 
     <script>
-           
         // --- CONFIGURACIÓN DE FIREBASE ---
-        
         const firebaseConfig = {
- 	 apiKey: "AIzaSyCvkfQFhGvCii6EGh_2VPwX-uQQBT_2IiE",
- 	 authDomain: "sistemas-picadasconcordia.firebaseapp.com",
- 	 projectId: "sistemas-picadasconcordia",
-	 storageBucket: "sistemas-picadasconcordia.firebasestorage.app",
-  	 messagingSenderId: "182608457300",
-  	 appId: "1:182608457300:web:c89f0b615a29e856ba47c1"
-};
+            apiKey: "AIzaSyCvkfQFhGvCii6EGh_2VPwX-uQQBT_2IiE",
+            authDomain: "sistemas-picadasconcordia.firebaseapp.com",
+            projectId: "sistemas-picadasconcordia",
+            storageBucket: "sistemas-picadasconcordia.firebasestorage.app",
+            messagingSenderId: "182608457300",
+            appId: "1:182608457300:web:c89f0b615a29e856ba47c1"
+        };
 
-        // Inicializar Firebase (Envuelto en un try/catch para que la app siga funcionando localmente si aún no pones tus keys)
-        let db, auth;
+        // Inicializar Firebase
+        let db;
         try {
             if (!firebase.apps.length) {
                 firebase.initializeApp(firebaseConfig);
             }
             db = firebase.firestore();
-            auth = firebase.auth();
             console.log("Firebase inicializado correctamente.");
         } catch (error) {
-            console.warn("Firebase no configurado aún. Usando datos de prueba locales.");
+            console.warn("Error con Firebase:", error);
         }
 
-        //        
-        // --- DATA & STATE MANAGEMENT (Modo Local) ---
-        // Nota: Cuando Firebase esté conectado 100%, este estado se actualizará leyendo la base de datos (Firestore)
-        const CLASS_TIME_LIMITS = {
+        // --- DATA & STATE MANAGEMENT ---
+        let CLASS_TIME_LIMITS = {
             'Clase 1': 'Tiempo tope: 13.00 seg',
             'Clase 2': 'Tiempo tope: 12.50 seg',
             'Clase 3': 'Tiempo tope: 12.00 seg',
@@ -199,14 +194,14 @@
         };
 
         const APP_STATE = {
-            view: 'login', // Vistas disponibles
+            view: 'login', 
             user: null, 
             registeredUsers: [
-                { doc: '111', password: 'admin', role: 'admin', name: 'Administrador' } // Default admin
+                { doc: '111', password: 'admin', role: 'admin', name: 'Administrador' } // Admin por defecto
             ],
-            selectedCategory: null, // 'autos' or 'motos'
+            selectedCategory: null, 
             selectedClass: null,
-            liveTab: 'entrada', // entrada, torre, evento, valores
+            liveTab: 'entrada', 
             prices: {
                 ticket: 5000,
                 parking: 2000,
@@ -220,9 +215,7 @@
                 category: null,
                 class: null
             },
-            
             enrollmentData: {},
-
             championship: {
                 motos: {
                     dates: ['Fecha 1', 'Fecha 2', 'Fecha 3'],
@@ -253,7 +246,52 @@
             if (!APP_STATE.championship.autos.data[cls]) APP_STATE.championship.autos.data[cls] = [];
         });
 
-        //        
+        // --- FIREBASE SYNC ENGINE (TIEMPO REAL) ---
+        function initFirebaseSync() {
+            if (!db) return;
+            
+            const docRef = db.collection('picadas').doc('estado_global');
+            
+            // onSnapshot escucha la base de datos EN TIEMPO REAL
+            docRef.onSnapshot((doc) => {
+                if (doc.exists) {
+                    const data = doc.data();
+                    
+                    // Actualizamos nuestro estado local con lo que viene de la nube
+                    if(data.prices) APP_STATE.prices = data.prices;
+                    if(data.liveStatus) APP_STATE.liveStatus = data.liveStatus;
+                    if(data.championship) APP_STATE.championship = data.championship;
+                    if(data.timeLimits) CLASS_TIME_LIMITS = data.timeLimits;
+                    if(data.registeredUsers) APP_STATE.registeredUsers = data.registeredUsers;
+                    
+                    // Re-renderizamos la vista para que el cambio se vea instantáneamente
+                    if (APP_STATE.view !== 'login' && APP_STATE.view !== 'register' && APP_STATE.view !== 'recovery' && APP_STATE.view !== 'recoveryStep2') {
+                        render(); 
+                    }
+                } else {
+                    // Si el documento no existe en Firebase aún, lo creamos subiendo nuestro estado inicial
+                    saveToFirebase();
+                }
+            });
+        }
+
+        function saveToFirebase() {
+            if (!db) return;
+            
+            // Enviamos el estado modificado a Firebase
+            db.collection('picadas').doc('estado_global').set({
+                prices: APP_STATE.prices,
+                liveStatus: APP_STATE.liveStatus,
+                championship: APP_STATE.championship,
+                timeLimits: CLASS_TIME_LIMITS,
+                registeredUsers: APP_STATE.registeredUsers
+            }, { merge: true })
+            .catch(error => {
+                console.error("Error al sincronizar con Firebase:", error);
+                showToast("Error de conexión al sincronizar", "error");
+            });
+        }
+
         // --- UTILS ---
         function showToast(message, type = 'info') {
             const container = document.getElementById('toast-container');
@@ -324,7 +362,6 @@
             app.innerHTML = content;
         }
 
-        //        
         // --- VIEWS ---
         function renderHeader() {
             return `
@@ -359,7 +396,7 @@
                     <div class="w-full max-w-md mx-auto">
                         <div class="text-center mb-10">
                             <!-- Logo Login -->
-                            <img src="logo.png" alt="Picada Concordia" class="h-24 mx-auto mb-4 object-contain drop-shadow-[0_0_15px_rgba(210,0,179,0.3)]">
+                            <img src="logo.png" alt="Picadas Concordia" class="h-24 mx-auto mb-4 object-contain drop-shadow-[0_0_15px_rgba(210,0,179,0.3)]">
                             <p class="text-gray-400 font-sans">Sistema de Gestión de Pilotos</p>
                         </div>
                         
@@ -446,7 +483,6 @@
             `;
         }
 
-        //        
         function renderRecovery() {
             return `
                 <div class="flex-1 flex flex-col justify-center p-6 fade-in">
@@ -585,7 +621,6 @@
             `;
         }
 
-        //        
         function renderCalendar() {
             let adminControls = '';
             if (APP_STATE.user.role === 'admin') {
@@ -691,7 +726,6 @@
             `;
         }
 
-        //        
         function renderClassDetail() {
             const cat = APP_STATE.selectedCategory;
             const cls = APP_STATE.selectedClass;
@@ -808,7 +842,6 @@
             `;
         }
 
-        //        
         function renderEnrollment() {
             const cls = APP_STATE.selectedClass;
             const price = APP_STATE.selectedCategory === 'autos' ? APP_STATE.prices.autoEnrollment : APP_STATE.prices.motoEnrollment;
@@ -958,7 +991,6 @@
             `;
         }
 
-        //
         function renderLiveEvent() {
             if (APP_STATE.user.role !== 'admin') return '';
 
@@ -1185,7 +1217,6 @@
             `;
         }
 
-        //
         function renderSupport() {
             return `
                 <div class="flex-1 p-6 fade-in max-w-2xl mx-auto w-full">
@@ -1222,11 +1253,11 @@
             const doc = document.getElementById('loginDoc').value;
             const pass = document.getElementById('loginPass').value;
 
-            // En el futuro, aquí se usará: auth.signInWithEmailAndPassword(...)
             const user = APP_STATE.registeredUsers.find(u => u.doc === doc && u.password === pass);
 
             if (user) {
                 APP_STATE.user = user;
+                localStorage.setItem('picadas_user', JSON.stringify(user)); // Guarda sesión temporal local
                 setView('dashboard');
             } else {
                 showToast('Documento o contraseña incorrectos', 'error');
@@ -1251,8 +1282,9 @@
                 role: 'user'
             };
 
-            // En el futuro, aquí se usará: db.collection("users").add(...)
             APP_STATE.registeredUsers.push(newUser);
+            saveToFirebase(); // Sincroniza nuevo usuario
+            
             showToast('¡Registro correcto! Inicia sesión', 'success');
             setView('login');
         }
@@ -1292,6 +1324,8 @@
                 return;
             }
 
+            // Aquí en la versión completa buscaríamos el usuario y cambiaríamos el pass. 
+            // Como simulamos la recuperación, volvemos al login:
             showToast('Contraseña cambiada. Inicie sesión', 'success');
             setView('login');
         }
@@ -1300,10 +1334,10 @@
             APP_STATE.user = null;
             APP_STATE.selectedCategory = null;
             APP_STATE.selectedClass = null;
+            localStorage.removeItem('picadas_user'); // Borra sesión local
             setView('login');
         }
 
-        //        
         function handleEnrollmentStep1(e) {
             e.preventDefault();
             APP_STATE.enrollmentData = {
@@ -1340,8 +1374,8 @@
                 dates: new Array(APP_STATE.championship[cat].dates.length).fill('')
             };
             
-            // En Firebase se usará: db.collection("championship").doc(cat)...
             APP_STATE.championship[cat].data[cls].push(newPilot);
+            saveToFirebase(); // Sincroniza nueva inscripción
             
             showToast('¡Inscripción pendiente de confirmación en torre!', 'success');
             setView('classDetail');
@@ -1364,6 +1398,7 @@
             };
             
             APP_STATE.championship[cat].data[cls].push(newPilot);
+            saveToFirebase(); // Sincroniza nueva inscripción administrativa
             
             showToast(`Piloto inscripto correctamente. Pago vía: ${payment}`, 'success');
             setView('classDetail');
@@ -1371,6 +1406,7 @@
 
         function saveClassTime(cls, val) {
             CLASS_TIME_LIMITS[cls] = val;
+            saveToFirebase(); // Sincroniza tiempos
             showToast('Tiempo actualizado', 'success');
         }
 
@@ -1379,7 +1415,7 @@
             const pilot = data.find(p => p.id === pilotId);
             if (pilot) {
                 pilot.dates[dateIndex] = value === '' ? '' : parseInt(value) || 0;
-                render(); 
+                saveToFirebase(); // Sincroniza puntaje editado
             }
         }
 
@@ -1391,7 +1427,7 @@
                 classData.forEach(pilot => pilot.dates.push(''));
             });
             
-            render();
+            saveToFirebase(); // Sincroniza nueva fecha global
             showToast(`Fecha ${count} añadida`, 'success');
         }
 
@@ -1403,12 +1439,12 @@
                         pilot.dates = [''];
                     });
                 });
-                render();
+                
+                saveToFirebase(); // Sincroniza reinicio
                 showToast('Año reiniciado correctamente', 'info');
             }
         }
 
-        //        
         function calculateGateTotal() {
             const isRacer = document.getElementById('gateIsRacer').checked;
             let total = 0;
@@ -1482,33 +1518,37 @@
             APP_STATE.prices.motoEnrollment = parseInt(document.getElementById('valMoto').value);
             APP_STATE.prices.reentry = parseInt(document.getElementById('valReentry').value);
             
-            // En el futuro, aquí se guardarán los precios en Firebase DB
-            showToast('Valores actualizados correctamente.', 'success');
+            saveToFirebase(); // GATILLA LA SINCRONIZACIÓN EN TIEMPO REAL A TODOS
+            showToast('Valores sincronizados en Firebase.', 'success');
         }
 
         function startLiveEvent(category, cls) {
-            // Cuando uses Firebase, este cambio se enviará a la base de datos
-            // db.collection("event").doc("status").update({ ... })
             APP_STATE.liveStatus = {
                 active: true,
                 category: category,
                 class: cls
             };
-            render();
+            saveToFirebase(); // Gatilla sync global del evento
             showToast(`¡Transmisión iniciada para ${cls}!`, 'success');
         }
 
         function stopLiveEvent() {
             APP_STATE.liveStatus.active = false;
-            render();
+            saveToFirebase(); // Gatilla apagado global del evento
             showToast('Evento en vivo detenido.', 'info');
         }
 
         // --- INIT APP ---
         function initApp() {
-            // Nota Firebase: Aquí agregarás un listener para saber si el usuario ya inició sesión
-            // auth.onAuthStateChanged(user => { if(user) setView('dashboard') else setView('login') })
-            if (APP_STATE.user) {
+            // Inicializar el escuchador de la nube
+            if (db) {
+                initFirebaseSync();
+            }
+
+            // Chequear si ya habíamos iniciado sesión localmente en este navegador
+            const savedUser = localStorage.getItem('picadas_user');
+            if (savedUser) {
+                APP_STATE.user = JSON.parse(savedUser);
                 setView('dashboard');
             } else {
                 setView('login');
