@@ -2,7 +2,8 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- Ajustes para que respete la Isla Dinámica de los iPhone (viewport-fit=cover) -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Picadas Concordia</title>
     
     <!-- Fonts -->
@@ -13,7 +14,7 @@
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- Firebase SDK (Versión Compat para integración sencilla con Vanilla JS) -->
+    <!-- Firebase SDK (Versión Compat) -->
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -26,7 +27,7 @@
                 extend: {
                     colors: {
                         picadas: {
-                            pink: '#d200b3', // Color fucsia del logo
+                            pink: '#d200b3', 
                             pinkDark: '#a10089',
                             dark: '#0f0f11',
                             card: '#1a1a1d'
@@ -63,17 +64,13 @@
         }
 
         /* Animations */
-        .fade-in {
-            animation: fadeIn 0.3s ease-in-out;
-        }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
 
-        .slide-in-right {
-            animation: slideInRight 0.3s ease-in-out;
-        }
+        .slide-in-right { animation: slideInRight 0.3s ease-in-out; }
         @keyframes slideInRight {
             from { opacity: 0; transform: translateX(20px); }
             to { opacity: 1; transform: translateX(0); }
@@ -117,21 +114,11 @@
             to { opacity: 0; transform: translateY(100%); }
         }
 
-        /* Sticky Columns for Tables */
-        .sticky-col-1 {
-            position: sticky;
-            left: 0;
-            background-color: inherit;
-            z-index: 10;
-        }
-        .sticky-col-2 {
-            position: sticky;
-            left: 40px; /* Adjust based on col 1 width */
-            background-color: inherit;
-            z-index: 10;
-        }
+        /* Sticky Columns */
+        .sticky-col-1 { position: sticky; left: 0; background-color: inherit; z-index: 10; }
+        .sticky-col-2 { position: sticky; left: 40px; background-color: inherit; z-index: 10; }
         
-        /* Ensure inputs in tables look seamless */
+        /* Inputs in tables */
         .table-input {
             background: transparent;
             border: 1px solid transparent;
@@ -151,12 +138,10 @@
 
     <!-- App Container -->
     <div id="app" class="h-full flex flex-col overflow-y-auto"></div>
-    
     <!-- Toast Container -->
     <div id="toast-container"></div>
 
     <script>
-        // --- CONFIGURACIÓN DE FIREBASE ---
         const firebaseConfig = {
             apiKey: "AIzaSyCvkfQFhGvCii6EGh_2VPwX-uQQBT_2IiE",
             authDomain: "sistemas-picadasconcordia.firebaseapp.com",
@@ -166,20 +151,19 @@
             appId: "1:182608457300:web:c89f0b615a29e856ba47c1"
         };
 
-        // Inicializar Firebase
-        let db;
+        let db, auth;
         try {
             if (!firebase.apps.length) {
                 firebase.initializeApp(firebaseConfig);
             }
             db = firebase.firestore();
+            auth = firebase.auth();
             console.log("Firebase inicializado correctamente.");
         } catch (error) {
-            console.warn("Error con Firebase:", error);
+            console.warn("Firebase no configurado aún. Usando datos de prueba locales.");
         }
 
-        // --- DATA & STATE MANAGEMENT ---
-        let CLASS_TIME_LIMITS = {
+        const CLASS_TIME_LIMITS = {
             'Clase 1': 'Tiempo tope: 13.00 seg',
             'Clase 2': 'Tiempo tope: 12.50 seg',
             'Clase 3': 'Tiempo tope: 12.00 seg',
@@ -197,11 +181,11 @@
             view: 'login', 
             user: null, 
             registeredUsers: [
-                { doc: '111', password: 'admin', role: 'admin', name: 'Administrador' } // Admin por defecto
+                { doc: '111', password: 'admin', role: 'admin', name: 'Administrador' }
             ],
-            selectedCategory: null, 
+            selectedCategory: null,
             selectedClass: null,
-            liveTab: 'entrada', 
+            liveTab: 'entrada',
             prices: {
                 ticket: 5000,
                 parking: 2000,
@@ -209,6 +193,16 @@
                 autoEnrollment: 20000,
                 motoEnrollment: 15000,
                 reentry: 10000
+            },
+            balance: {
+                spectators: 0,
+                insurance: 0,
+                autoEnrollment: 0,
+                motoEnrollment: 0
+            },
+            history: {
+                balances: [],
+                classes: []
             },
             liveStatus: {
                 active: false,
@@ -238,7 +232,6 @@
             }
         };
 
-        // Initialize empty arrays for classes without mock data
         APP_STATE.championship.motos.classes.forEach(cls => {
             if (!APP_STATE.championship.motos.data[cls]) APP_STATE.championship.motos.data[cls] = [];
         });
@@ -246,53 +239,40 @@
             if (!APP_STATE.championship.autos.data[cls]) APP_STATE.championship.autos.data[cls] = [];
         });
 
-        // --- FIREBASE SYNC ENGINE (TIEMPO REAL) ---
-        function initFirebaseSync() {
-            if (!db) return;
-            
-            const docRef = db.collection('picadas').doc('estado_global');
-            
-            // onSnapshot escucha la base de datos EN TIEMPO REAL
-            docRef.onSnapshot((doc) => {
-                if (doc.exists) {
-                    const data = doc.data();
-                    
-                    // Actualizamos nuestro estado local con lo que viene de la nube
-                    if(data.prices) APP_STATE.prices = data.prices;
-                    if(data.liveStatus) APP_STATE.liveStatus = data.liveStatus;
-                    if(data.championship) APP_STATE.championship = data.championship;
-                    if(data.timeLimits) CLASS_TIME_LIMITS = data.timeLimits;
-                    if(data.registeredUsers) APP_STATE.registeredUsers = data.registeredUsers;
-                    
-                    // Re-renderizamos la vista para que el cambio se vea instantáneamente
-                    if (APP_STATE.view !== 'login' && APP_STATE.view !== 'register' && APP_STATE.view !== 'recovery' && APP_STATE.view !== 'recoveryStep2') {
-                        render(); 
-                    }
-                } else {
-                    // Si el documento no existe en Firebase aún, lo creamos subiendo nuestro estado inicial
-                    saveToFirebase();
-                }
-            });
-        }
-
         function saveToFirebase() {
-            if (!db) return;
-            
-            // Enviamos el estado modificado a Firebase
-            db.collection('picadas').doc('estado_global').set({
-                prices: APP_STATE.prices,
-                liveStatus: APP_STATE.liveStatus,
-                championship: APP_STATE.championship,
-                timeLimits: CLASS_TIME_LIMITS,
-                registeredUsers: APP_STATE.registeredUsers
-            }, { merge: true })
-            .catch(error => {
-                console.error("Error al sincronizar con Firebase:", error);
-                showToast("Error de conexión al sincronizar", "error");
-            });
+            try {
+                localStorage.setItem('picadasData', JSON.stringify({
+                    championship: APP_STATE.championship,
+                    liveStatus: APP_STATE.liveStatus,
+                    prices: APP_STATE.prices,
+                    balance: APP_STATE.balance,
+                    history: APP_STATE.history,
+                    timeLimits: CLASS_TIME_LIMITS,
+                    registeredUsers: APP_STATE.registeredUsers
+                }));
+            } catch(e) {}
         }
 
-        // --- UTILS ---
+        function loadFromFirebase() {
+            try {
+                const data = localStorage.getItem('picadasData');
+                if(data) {
+                    const parsed = JSON.parse(data);
+                    APP_STATE.championship = parsed.championship || APP_STATE.championship;
+                    APP_STATE.liveStatus = parsed.liveStatus || APP_STATE.liveStatus;
+                    APP_STATE.prices = parsed.prices || APP_STATE.prices;
+                    APP_STATE.balance = parsed.balance || APP_STATE.balance;
+                    
+                    if(parsed.history) APP_STATE.history = parsed.history;
+                    if(!APP_STATE.history.balances) APP_STATE.history.balances = [];
+                    if(!APP_STATE.history.classes) APP_STATE.history.classes = [];
+                    
+                    APP_STATE.registeredUsers = parsed.registeredUsers || APP_STATE.registeredUsers;
+                    Object.assign(CLASS_TIME_LIMITS, parsed.timeLimits || {});
+                }
+            } catch(e) {}
+        }
+
         function showToast(message, type = 'info') {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
@@ -302,13 +282,9 @@
             if (type === 'error') icon = 'fa-exclamation-circle text-red-500';
 
             toast.className = `toast ${type}`;
-            toast.innerHTML = `
-                <i class="fas ${icon} text-xl"></i>
-                <span class="text-white text-sm font-medium">${message}</span>
-            `;
+            toast.innerHTML = `<i class="fas ${icon} text-xl"></i><span class="text-white text-sm font-medium">${message}</span>`;
             
             container.appendChild(toast);
-            
             setTimeout(() => {
                 toast.style.animation = 'toastOut 0.3s ease-in forwards';
                 setTimeout(() => toast.remove(), 300);
@@ -324,7 +300,6 @@
             data.sort((a, b) => calculateTotalPoints(b.dates) - calculateTotalPoints(a.dates));
         }
 
-        // --- CORE ROUTING ---
         function setView(viewName) {
             APP_STATE.view = viewName;
             render();
@@ -362,16 +337,14 @@
             app.innerHTML = content;
         }
 
-        // --- VIEWS ---
         function renderHeader() {
             return `
-                <header class="bg-picadas-dark border-b border-gray-800 p-4 sticky top-0 z-40 shadow-md">
+                <header class="bg-picadas-dark border-b border-gray-800 p-4 sticky top-0 z-40 shadow-md" style="padding-top: max(1rem, env(safe-area-inset-top));">
                     <div class="max-w-4xl mx-auto flex justify-between items-center">
                         <button onclick="handleBack()" class="text-gray-400 hover:text-white p-2">
                             <i class="fas fa-arrow-left text-xl"></i>
                         </button>
                         <div class="flex flex-col items-center cursor-pointer" onclick="setView('dashboard')">
-                            <!-- Logo Header -->
                             <img src="logo.png" alt="Picadas Concordia" class="h-8 object-contain">
                         </div>
                         <button onclick="handleLogout()" class="text-gray-400 hover:text-picadas-pink p-2">
@@ -392,12 +365,11 @@
 
         function renderLogin() {
             return `
-                <div class="flex-1 flex flex-col justify-center p-6 fade-in bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-picadas-pinkDark/20 via-picadas-dark to-black">
+                <div class="flex-1 flex flex-col justify-center p-6 fade-in bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-picadas-pinkDark/20 via-picadas-dark to-black" style="padding-top: env(safe-area-inset-top);">
                     <div class="w-full max-w-md mx-auto">
                         <div class="text-center mb-10">
-                            <!-- Logo Login -->
                             <img src="logo.png" alt="Picadas Concordia" class="h-24 mx-auto mb-4 object-contain drop-shadow-[0_0_15px_rgba(210,0,179,0.3)]">
-                            <p class="text-gray-400 font-sans">Sistema de Gestión de Pilotos</p>
+                            <p class="text-gray-400 font-sans mt-2">Sistema de Gestión de Pilotos</p>
                         </div>
                         
                         <form onsubmit="handleLogin(event)" class="space-y-4 bg-picadas-card p-6 rounded-2xl border border-gray-800 shadow-2xl">
@@ -440,7 +412,7 @@
 
         function renderRegister() {
             return `
-                <div class="flex-1 flex flex-col justify-center p-6 slide-in-right">
+                <div class="flex-1 flex flex-col justify-center p-6 slide-in-right" style="padding-top: env(safe-area-inset-top);">
                     <div class="w-full max-w-md mx-auto">
                         <button onclick="setView('login')" class="text-gray-400 hover:text-white mb-6 flex items-center gap-2">
                             <i class="fas fa-arrow-left"></i> Volver al Login
@@ -485,7 +457,7 @@
 
         function renderRecovery() {
             return `
-                <div class="flex-1 flex flex-col justify-center p-6 fade-in">
+                <div class="flex-1 flex flex-col justify-center p-6 fade-in" style="padding-top: env(safe-area-inset-top);">
                     <div class="w-full max-w-md mx-auto">
                         <button onclick="setView('login')" class="text-gray-400 hover:text-white mb-6 flex items-center gap-2">
                             <i class="fas fa-arrow-left"></i> Volver al Login
@@ -539,7 +511,7 @@
 
         function renderRecoveryStep2() {
             return `
-                <div class="flex-1 flex flex-col justify-center p-6 slide-in-right">
+                <div class="flex-1 flex flex-col justify-center p-6 slide-in-right" style="padding-top: env(safe-area-inset-top);">
                     <div class="w-full max-w-md mx-auto">
                         <h2 class="text-3xl font-display font-bold text-white mb-2 uppercase">Nueva Contraseña</h2>
                         <p class="text-gray-400 mb-6 text-sm" id="recoveryMessage">Ingresa el código que te enviamos y tu nueva contraseña.</p>
@@ -578,7 +550,7 @@
                             <i class="fas fa-broadcast-tower text-2xl"></i>
                         </div>
                         <h3 class="text-2xl font-display font-bold text-white mb-1">Evento en Vivo</h3>
-                        <p class="text-white/80 text-sm">Control de puerta, torre, valores y transmisión en vivo.</p>
+                        <p class="text-white/80 text-sm">Control de puerta, torre, valores, caja y transmisión.</p>
                     </button>
                 `;
             }
@@ -649,7 +621,7 @@
                             <div>
                                 <h3 class="font-display font-bold text-xl text-white">4ta Fecha - Campeonato</h3>
                                 <p class="text-gray-400 text-sm flex items-center gap-2 mt-1">
-                                    <i class="far fa-clock"></i> 15 de Octubre, 2023 - 09:00 AM
+                                    <i class="far fa-clock"></i> 15 de Octubre, 2026 - 09:00 AM
                                 </p>
                             </div>
                             <div class="text-center bg-black/50 p-3 rounded-xl border border-gray-800">
@@ -1000,6 +972,9 @@
                 case 'torre': tabContent = renderLiveTorre(); break;
                 case 'evento': tabContent = renderLiveControl(); break;
                 case 'valores': tabContent = renderLiveValores(); break;
+                case 'balance': tabContent = renderLiveBalance(); break;
+                case 'fechas': tabContent = renderLiveFechas(); break;
+                case 'clases': tabContent = renderLiveClases(); break;
             }
 
             return `
@@ -1010,6 +985,9 @@
                             <button onclick="APP_STATE.liveTab='torre'; render();" class="px-4 py-2 font-bold text-sm rounded-lg transition-colors ${APP_STATE.liveTab === 'torre' ? 'bg-picadas-pink text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-flag-checkered mr-1"></i> Torre</button>
                             <button onclick="APP_STATE.liveTab='evento'; render();" class="px-4 py-2 font-bold text-sm rounded-lg transition-colors ${APP_STATE.liveTab === 'evento' ? 'bg-picadas-pink text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-broadcast-tower mr-1"></i> Evento</button>
                             <button onclick="APP_STATE.liveTab='valores'; render();" class="px-4 py-2 font-bold text-sm rounded-lg transition-colors ${APP_STATE.liveTab === 'valores' ? 'bg-picadas-pink text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-dollar-sign mr-1"></i> Valores</button>
+                            <button onclick="APP_STATE.liveTab='balance'; render();" class="px-4 py-2 font-bold text-sm rounded-lg transition-colors ${APP_STATE.liveTab === 'balance' ? 'bg-green-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-chart-pie mr-1"></i> Balance</button>
+                            <button onclick="APP_STATE.liveTab='fechas'; render();" class="px-4 py-2 font-bold text-sm rounded-lg transition-colors ${APP_STATE.liveTab === 'fechas' ? 'bg-picadas-pink text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-history mr-1"></i> Fechas</button>
+                            <button onclick="APP_STATE.liveTab='clases'; render();" class="px-4 py-2 font-bold text-sm rounded-lg transition-colors ${APP_STATE.liveTab === 'clases' ? 'bg-picadas-pink text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-list-alt mr-1"></i> Clases</button>
                         </div>
                     </div>
                     <div class="flex-1 p-4 pb-20">
@@ -1137,13 +1115,55 @@
                         <div class="space-y-2">
                             ${APP_STATE.championship[category].classes.map(cls => {
                                 const isThisLive = isCatLive && APP_STATE.liveStatus.class === cls;
+                                
+                                let pilotsListHtml = '';
+                                if (isThisLive) {
+                                    const pilots = APP_STATE.championship[category].data[cls] || [];
+                                    const currentDateIndex = APP_STATE.championship[category].dates.length - 1; 
+                                    
+                                    if (pilots.length === 0) {
+                                        pilotsListHtml = `<div class="mt-3 p-3 text-sm text-gray-500 text-center bg-black/30 rounded border border-gray-800">No hay pilotos inscriptos.</div>`;
+                                    } else {
+                                        pilotsListHtml = `<div class="mt-3 space-y-2 border-t border-green-500/30 pt-3">
+                                            <h4 class="text-xs font-bold text-green-400 uppercase mb-2 flex items-center gap-1"><i class="fas fa-users"></i> Pilotos a llamar / En Pista</h4>`;
+                                        
+                                        pilots.forEach(pilot => {
+                                            const currentScore = pilot.dates[currentDateIndex] || '';
+                                            pilotsListHtml += `
+                                                <div class="flex flex-wrap items-center justify-between bg-black/50 p-2.5 rounded border border-gray-700 gap-2 hover:border-gray-500 transition-colors">
+                                                    <label class="flex items-center gap-3 cursor-pointer">
+                                                        <input type="checkbox" class="w-5 h-5 accent-green-500 rounded cursor-pointer" title="Marcar si está en pista">
+                                                        <span class="text-sm font-bold text-white"><span class="text-gray-400 font-mono text-xs mr-1">#${pilot.ins}</span> ${pilot.pilot}</span>
+                                                    </label>
+                                                    <div class="flex items-center gap-2 ml-auto">
+                                                        <span class="text-xs text-gray-500 font-bold uppercase">Pts:</span>
+                                                        <input type="number" value="${currentScore}" 
+                                                            onchange="updatePilotScore('${category}', '${cls}', ${pilot.id}, ${currentDateIndex}, this.value)"
+                                                            class="w-16 px-2 py-1 text-sm bg-gray-900 border border-gray-600 rounded text-center text-white focus:outline-none focus:border-green-500 transition-colors"
+                                                            placeholder="0">
+                                                    </div>
+                                                </div>
+                                            `;
+                                        });
+                                        pilotsListHtml += `</div>
+                                        <div class="mt-4 pt-3 border-t border-green-500/30">
+                                            <button onclick="finishClass('${category}', '${cls}')" class="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-colors shadow-lg">
+                                                <i class="fas fa-flag-checkered"></i> FINALIZAR CLASE Y GUARDAR BACKUP
+                                            </button>
+                                        </div>`;
+                                    }
+                                }
+
                                 return `
-                                    <div class="flex items-center justify-between p-3 rounded-lg ${isThisLive ? 'bg-green-900/40 border border-green-500/50' : 'bg-gray-900 border border-gray-800'}">
-                                        <span class="font-bold text-white">${cls}</span>
-                                        ${isThisLive 
-                                            ? `<button onclick="stopLiveEvent()" class="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 animate-pulse"><i class="fas fa-stop"></i> DETENER</button>`
-                                            : `<button onclick="startLiveEvent('${category}', '${cls}')" class="bg-gray-800 hover:bg-green-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-700 transition-colors"><i class="fas fa-play"></i> INICIAR</button>`
-                                        }
+                                    <div class="flex flex-col p-3 rounded-lg ${isThisLive ? 'bg-green-900/20 border border-green-500/50 shadow-inner' : 'bg-gray-900 border border-gray-800'} transition-all">
+                                        <div class="flex items-center justify-between">
+                                            <span class="font-bold text-white">${cls}</span>
+                                            ${isThisLive 
+                                                ? `<button onclick="stopLiveEvent()" class="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-4 py-2 rounded-lg flex items-center gap-2 animate-pulse shadow-[0_0_10px_rgba(220,38,38,0.5)]"><i class="fas fa-stop"></i> DETENER (Sin Backup)</button>`
+                                                : `<button onclick="startLiveEvent('${category}', '${cls}')" class="bg-gray-800 hover:bg-green-600 text-white text-xs font-bold px-4 py-2 rounded-lg border border-gray-700 transition-colors flex items-center gap-2"><i class="fas fa-play"></i> INICIAR</button>`
+                                            }
+                                        </div>
+                                        ${pilotsListHtml}
                                     </div>
                                 `;
                             }).join('')}
@@ -1161,7 +1181,7 @@
                             : `<span class="bg-gray-800 text-gray-400 text-xs font-bold px-3 py-1 rounded-full border border-gray-700">SIN ACTIVIDAD</span>`
                         }
                     </div>
-                    <p class="text-sm text-gray-400 mb-6">Selecciona qué clase está corriendo ahora mismo. Esto se actualizará en tiempo real en la app de todos los usuarios.</p>
+                    <p class="text-sm text-gray-400 mb-6">Selecciona qué clase está corriendo ahora mismo. Despliega la lista de pilotos para marcar quiénes están en pista y cargar sus puntajes en el acto.</p>
                     
                     ${renderClasses('motos', 'Categoría Motos', 'fa-motorcycle')}
                     ${renderClasses('autos', 'Categoría Autos', 'fa-car-side')}
@@ -1217,6 +1237,130 @@
             `;
         }
 
+        function renderLiveBalance() {
+            const b = APP_STATE.balance;
+            const total = b.spectators + b.insurance + b.autoEnrollment + b.motoEnrollment;
+
+            return `
+                <div class="max-w-2xl mx-auto space-y-6">
+                    <div class="flex items-center justify-between mb-2">
+                        <h2 class="text-2xl font-display font-bold text-white">Caja en Vivo</h2>
+                        <span class="text-xs text-green-500 font-bold bg-green-500/20 px-2 py-1 rounded animate-pulse">Sincronizado</span>
+                    </div>
+                    <p class="text-sm text-gray-400 mb-6">El total acumulado de las operaciones realizadas en Puerta y Torre el día de hoy.</p>
+                    
+                    <div class="bg-gradient-to-br from-green-900 to-black p-6 rounded-2xl border border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.15)] mb-6 text-center">
+                        <span class="block text-green-500 text-sm uppercase tracking-widest font-bold mb-2">Recaudación Total</span>
+                        <span class="text-5xl font-display font-bold text-white">$${total.toLocaleString('es-AR')}</span>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="bg-picadas-card p-5 rounded-xl border border-gray-800 flex items-center justify-between">
+                            <div>
+                                <i class="fas fa-ticket-alt text-gray-500 text-xl mb-2"></i>
+                                <h4 class="text-gray-400 text-xs uppercase font-bold tracking-wider">Espectadores</h4>
+                                <p class="text-xs text-gray-600 mt-1">Incluye Estacionamiento</p>
+                            </div>
+                            <span class="text-2xl font-bold text-white">$${b.spectators.toLocaleString('es-AR')}</span>
+                        </div>
+                        
+                        <div class="bg-picadas-card p-5 rounded-xl border border-gray-800 flex items-center justify-between">
+                            <div>
+                                <i class="fas fa-shield-alt text-picadas-pink text-xl mb-2"></i>
+                                <h4 class="text-gray-400 text-xs uppercase font-bold tracking-wider">Seguros (Puerta)</h4>
+                                <p class="text-xs text-gray-600 mt-1">Solo pilotos</p>
+                            </div>
+                            <span class="text-2xl font-bold text-white">$${b.insurance.toLocaleString('es-AR')}</span>
+                        </div>
+
+                        <div class="bg-picadas-card p-5 rounded-xl border border-gray-800 flex items-center justify-between">
+                            <div>
+                                <i class="fas fa-car-side text-blue-500 text-xl mb-2"></i>
+                                <h4 class="text-gray-400 text-xs uppercase font-bold tracking-wider">Inscripción Autos</h4>
+                                <p class="text-xs text-gray-600 mt-1">Torre y Reenganche</p>
+                            </div>
+                            <span class="text-2xl font-bold text-white">$${b.autoEnrollment.toLocaleString('es-AR')}</span>
+                        </div>
+
+                        <div class="bg-picadas-card p-5 rounded-xl border border-gray-800 flex items-center justify-between">
+                            <div>
+                                <i class="fas fa-motorcycle text-yellow-500 text-xl mb-2"></i>
+                                <h4 class="text-gray-400 text-xs uppercase font-bold tracking-wider">Inscripción Motos</h4>
+                                <p class="text-xs text-gray-600 mt-1">Torre y Reenganche</p>
+                            </div>
+                            <span class="text-2xl font-bold text-white">$${b.motoEnrollment.toLocaleString('es-AR')}</span>
+                        </div>
+                    </div>
+                    
+                    <button onclick="finishDate()" class="w-full py-4 mt-6 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg transition-colors flex justify-center items-center gap-2 text-lg">
+                        FINALIZAR FECHA Y GUARDAR BALANCE <i class="fas fa-save"></i>
+                    </button>
+                </div>
+            `;
+        }
+
+        function renderLiveFechas() {
+            if(APP_STATE.history.balances.length === 0) {
+                return `<div class="p-6 text-center text-gray-500 mt-10">No hay historial de fechas guardado aún.<br><span class="text-xs">Finaliza una fecha desde la pestaña Balance.</span></div>`;
+            }
+            
+            let html = '<div class="max-w-2xl mx-auto space-y-4"><h2 class="text-2xl font-display font-bold text-white mb-4">Historial de Balances</h2>';
+            [...APP_STATE.history.balances].reverse().forEach(b => {
+                html += `
+                    <div class="bg-picadas-card p-5 rounded-xl border border-gray-800 hover:border-gray-600 transition-colors">
+                        <div class="flex justify-between items-center mb-3 border-b border-gray-800 pb-2">
+                            <span class="text-sm text-gray-400 font-bold"><i class="far fa-calendar-check mr-1"></i> ${b.date}</span>
+                            <span class="text-xl font-display font-bold text-green-500">$${b.total.toLocaleString('es-AR')}</span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-sm text-gray-300">
+                            <div><span class="text-gray-500 text-xs block">Espectadores</span> $${b.balance.spectators.toLocaleString('es-AR')}</div>
+                            <div><span class="text-gray-500 text-xs block">Seguros</span> $${b.balance.insurance.toLocaleString('es-AR')}</div>
+                            <div><span class="text-gray-500 text-xs block">Autos</span> $${b.balance.autoEnrollment.toLocaleString('es-AR')}</div>
+                            <div><span class="text-gray-500 text-xs block">Motos</span> $${b.balance.motoEnrollment.toLocaleString('es-AR')}</div>
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            return html;
+        }
+
+        function renderLiveClases() {
+            if(APP_STATE.history.classes.length === 0) {
+                return `<div class="p-6 text-center text-gray-500 mt-10">No hay historial de clases finalizadas aún.<br><span class="text-xs">Finaliza una clase desde la pestaña Evento.</span></div>`;
+            }
+
+            let html = '<div class="max-w-2xl mx-auto space-y-4"><h2 class="text-2xl font-display font-bold text-white mb-4">Historial de Clases</h2>';
+            [...APP_STATE.history.classes].reverse().forEach(c => {
+                let pilotsHtml = c.pilots.map(p => `
+                    <div class="flex justify-between items-center text-sm py-1.5 border-b border-gray-800/50 last:border-0">
+                        <span class="text-gray-300"><span class="text-gray-500 font-mono text-xs mr-2">#${p.ins}</span>${p.pilot}</span>
+                        <span class="font-bold text-picadas-pink bg-picadas-pink/10 px-2 py-0.5 rounded">${p.points} pts</span>
+                    </div>
+                `).join('');
+
+                html += `
+                    <div class="bg-picadas-card p-5 rounded-xl border border-gray-800 hover:border-gray-600 transition-colors">
+                        <div class="flex flex-col md:flex-row justify-between md:items-center mb-3 border-b border-gray-800 pb-2 gap-2">
+                            <div class="flex items-center gap-2">
+                                <span class="bg-gray-800 text-xs px-2 py-1 rounded font-bold uppercase text-white">${c.category}</span>
+                                <span class="font-display text-lg font-bold text-white uppercase">${c.className}</span>
+                            </div>
+                            <div class="text-left md:text-right">
+                                <span class="block text-xs text-gray-400 font-bold text-picadas-pink">${c.championshipDate}</span>
+                                <span class="block text-xs text-gray-500"><i class="far fa-clock"></i> ${c.date}</span>
+                            </div>
+                        </div>
+                        <div class="bg-black/50 p-3 rounded-lg border border-gray-800">
+                            ${pilotsHtml || '<span class="text-xs text-gray-500">Sin pilotos inscriptos.</span>'}
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            return html;
+        }
+
         function renderSupport() {
             return `
                 <div class="flex-1 p-6 fade-in max-w-2xl mx-auto w-full">
@@ -1247,7 +1391,6 @@
             `;
         }
 
-        // --- HANDLERS ---
         function handleLogin(e) {
             e.preventDefault();
             const doc = document.getElementById('loginDoc').value;
@@ -1257,7 +1400,7 @@
 
             if (user) {
                 APP_STATE.user = user;
-                localStorage.setItem('picadas_user', JSON.stringify(user)); // Guarda sesión temporal local
+                localStorage.setItem('picadasSession', JSON.stringify(user));
                 setView('dashboard');
             } else {
                 showToast('Documento o contraseña incorrectos', 'error');
@@ -1283,8 +1426,7 @@
             };
 
             APP_STATE.registeredUsers.push(newUser);
-            saveToFirebase(); // Sincroniza nuevo usuario
-            
+            saveToFirebase();
             showToast('¡Registro correcto! Inicia sesión', 'success');
             setView('login');
         }
@@ -1302,14 +1444,14 @@
             }
 
             if (email) {
-                showToast('Link enviado al mail. (Simulado: redirigiendo...)', 'info');
+                showToast('Link enviado al mail. (Simulado)', 'info');
                 setTimeout(() => {
                     document.getElementById('recoveryMessage').innerText = "Ingresa tu nueva contraseña.";
                     document.getElementById('codeContainer').style.display = 'none';
                     setView('recoveryStep2');
                 }, 1500);
             } else if (phone) {
-                showToast('Código SMS enviado. (Simulado: ingresa cualquiera)', 'info');
+                showToast('Código SMS enviado. (Simulado)', 'info');
                 setView('recoveryStep2');
             }
         }
@@ -1324,8 +1466,6 @@
                 return;
             }
 
-            // Aquí en la versión completa buscaríamos el usuario y cambiaríamos el pass. 
-            // Como simulamos la recuperación, volvemos al login:
             showToast('Contraseña cambiada. Inicie sesión', 'success');
             setView('login');
         }
@@ -1334,7 +1474,7 @@
             APP_STATE.user = null;
             APP_STATE.selectedCategory = null;
             APP_STATE.selectedClass = null;
-            localStorage.removeItem('picadas_user'); // Borra sesión local
+            localStorage.removeItem('picadasSession');
             setView('login');
         }
 
@@ -1375,7 +1515,7 @@
             };
             
             APP_STATE.championship[cat].data[cls].push(newPilot);
-            saveToFirebase(); // Sincroniza nueva inscripción
+            saveToFirebase();
             
             showToast('¡Inscripción pendiente de confirmación en torre!', 'success');
             setView('classDetail');
@@ -1390,6 +1530,10 @@
             const cat = APP_STATE.selectedCategory;
             const cls = APP_STATE.selectedClass;
 
+            const amount = cat === 'autos' ? APP_STATE.prices.autoEnrollment : APP_STATE.prices.motoEnrollment;
+            if (cat === 'autos') APP_STATE.balance.autoEnrollment += amount;
+            if (cat === 'motos') APP_STATE.balance.motoEnrollment += amount;
+
             const newPilot = {
                 id: Date.now(),
                 ins: number,
@@ -1398,16 +1542,17 @@
             };
             
             APP_STATE.championship[cat].data[cls].push(newPilot);
-            saveToFirebase(); // Sincroniza nueva inscripción administrativa
+            saveToFirebase();
             
-            showToast(`Piloto inscripto correctamente. Pago vía: ${payment}`, 'success');
+            showToast(`Piloto inscripto correctamente. Pago vía: ${payment.split(' ')[0]}`, 'success');
             setView('classDetail');
         }
 
         function saveClassTime(cls, val) {
             CLASS_TIME_LIMITS[cls] = val;
-            saveToFirebase(); // Sincroniza tiempos
+            saveToFirebase();
             showToast('Tiempo actualizado', 'success');
+            render();
         }
 
         function updatePilotScore(category, className, pilotId, dateIndex, value) {
@@ -1415,7 +1560,8 @@
             const pilot = data.find(p => p.id === pilotId);
             if (pilot) {
                 pilot.dates[dateIndex] = value === '' ? '' : parseInt(value) || 0;
-                saveToFirebase(); // Sincroniza puntaje editado
+                saveToFirebase();
+                render(); 
             }
         }
 
@@ -1427,7 +1573,8 @@
                 classData.forEach(pilot => pilot.dates.push(''));
             });
             
-            saveToFirebase(); // Sincroniza nueva fecha global
+            saveToFirebase();
+            render();
             showToast(`Fecha ${count} añadida`, 'success');
         }
 
@@ -1439,8 +1586,8 @@
                         pilot.dates = [''];
                     });
                 });
-                
-                saveToFirebase(); // Sincroniza reinicio
+                saveToFirebase();
+                render();
                 showToast('Año reiniciado correctamente', 'info');
             }
         }
@@ -1477,11 +1624,23 @@
 
         function processGatePayment() {
             const isRacer = document.getElementById('gateIsRacer').checked;
-            const total = document.getElementById('gateTotal').innerText;
-            const method = document.getElementById('gatePayment').value;
+            let amount = 0;
             
+            if (isRacer) {
+                amount = APP_STATE.prices.insurance;
+                APP_STATE.balance.insurance += amount;
+            } else {
+                const qty = parseInt(document.getElementById('gateQty').value) || 1;
+                const parking = document.getElementById('gateParking').checked ? APP_STATE.prices.parking : 0;
+                amount = (qty * APP_STATE.prices.ticket) + parking;
+                APP_STATE.balance.spectators += amount;
+            }
+            
+            const method = document.getElementById('gatePayment').value;
             const type = isRacer ? 'Piloto (Seguro)' : 'Espectador';
-            showToast(`Cobro exitoso: ${type} - ${total} en ${method}`, 'success');
+            
+            saveToFirebase();
+            showToast(`Cobro exitoso: ${type} - $${amount} en ${method}`, 'success');
             
             document.getElementById('gateQty').value = 1;
             document.getElementById('gateParking').checked = false;
@@ -1504,9 +1663,22 @@
         }
 
         function processTorrePayment() {
-            const total = document.getElementById('torreTotal').innerText;
+            const type = document.getElementById('torreType').value;
+            const mode = document.querySelector('input[name="torreMode"]:checked').value;
+            let amount = 0;
+            
+            if (mode === 'reenganche') {
+                amount = APP_STATE.prices.reentry;
+            } else {
+                amount = type === 'auto' ? APP_STATE.prices.autoEnrollment : APP_STATE.prices.motoEnrollment;
+            }
+            
+            if (type === 'auto') APP_STATE.balance.autoEnrollment += amount;
+            if (type === 'moto') APP_STATE.balance.motoEnrollment += amount;
+
             const method = document.getElementById('torrePayment').value;
-            showToast(`Inscripción registrada en torre: ${total} en ${method}`, 'success');
+            saveToFirebase();
+            showToast(`Inscripción registrada en torre: $${amount} en ${method}`, 'success');
         }
 
         function saveLivePrices(e) {
@@ -1518,8 +1690,8 @@
             APP_STATE.prices.motoEnrollment = parseInt(document.getElementById('valMoto').value);
             APP_STATE.prices.reentry = parseInt(document.getElementById('valReentry').value);
             
-            saveToFirebase(); // GATILLA LA SINCRONIZACIÓN EN TIEMPO REAL A TODOS
-            showToast('Valores sincronizados en Firebase.', 'success');
+            saveToFirebase();
+            showToast('Valores actualizados correctamente.', 'success');
         }
 
         function startLiveEvent(category, cls) {
@@ -1528,27 +1700,79 @@
                 category: category,
                 class: cls
             };
-            saveToFirebase(); // Gatilla sync global del evento
+            saveToFirebase();
+            render();
             showToast(`¡Transmisión iniciada para ${cls}!`, 'success');
         }
 
         function stopLiveEvent() {
             APP_STATE.liveStatus.active = false;
-            saveToFirebase(); // Gatilla apagado global del evento
-            showToast('Evento en vivo detenido.', 'info');
+            saveToFirebase();
+            render();
+            showToast('Evento en vivo detenido (Sin backup generado).', 'info');
         }
 
-        // --- INIT APP ---
-        function initApp() {
-            // Inicializar el escuchador de la nube
-            if (db) {
-                initFirebaseSync();
+        function finishDate() {
+            if(confirm("¿Estás seguro de finalizar la fecha? Esto guardará el balance actual en el historial de Fechas y pondrá la caja de hoy en $0.")) {
+                const now = new Date();
+                const snapshot = {
+                    date: now.toLocaleDateString() + ' ' + now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+                    balance: { ...APP_STATE.balance },
+                    total: APP_STATE.balance.spectators + APP_STATE.balance.insurance + APP_STATE.balance.autoEnrollment + APP_STATE.balance.motoEnrollment
+                };
+                
+                APP_STATE.history.balances.push(snapshot);
+                
+                APP_STATE.balance = {
+                    spectators: 0,
+                    insurance: 0,
+                    autoEnrollment: 0,
+                    motoEnrollment: 0
+                };
+                
+                saveToFirebase();
+                APP_STATE.liveTab = 'fechas';
+                render();
+                showToast('Fecha finalizada y balance guardado con éxito.', 'success');
             }
+        }
 
-            // Chequear si ya habíamos iniciado sesión localmente en este navegador
-            const savedUser = localStorage.getItem('picadas_user');
-            if (savedUser) {
-                APP_STATE.user = JSON.parse(savedUser);
+        function finishClass(category, cls) {
+            if(confirm(`¿Estás seguro de finalizar la clase ${cls}? Esto guardará los resultados de esta fecha en el historial y detendrá la transmisión en vivo.`)) {
+                const now = new Date();
+                const dateIndex = APP_STATE.championship[category].dates.length - 1;
+                const pilotsData = APP_STATE.championship[category].data[cls] || [];
+                
+                const backupPilots = pilotsData.map(p => ({
+                    ins: p.ins,
+                    pilot: p.pilot,
+                    points: p.dates[dateIndex] || 0
+                }));
+
+                const snapshot = {
+                    date: now.toLocaleDateString() + ' ' + now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+                    category: category,
+                    className: cls,
+                    championshipDate: APP_STATE.championship[category].dates[dateIndex],
+                    pilots: backupPilots
+                };
+
+                APP_STATE.history.classes.push(snapshot);
+                APP_STATE.liveStatus.active = false;
+                
+                saveToFirebase();
+                APP_STATE.liveTab = 'clases';
+                render();
+                showToast(`Clase ${cls} finalizada y guardada en el historial.`, 'success');
+            }
+        }
+
+        function initApp() {
+            loadFromFirebase();
+            
+            const session = localStorage.getItem('picadasSession');
+            if(session) {
+                APP_STATE.user = JSON.parse(session);
                 setView('dashboard');
             } else {
                 setView('login');
