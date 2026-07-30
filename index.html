@@ -142,6 +142,7 @@
     <div id="toast-container"></div>
 
     <script>
+        // --- CONFIGURACIÓN DE FIREBASE ---
         const firebaseConfig = {
             apiKey: "AIzaSyCvkfQFhGvCii6EGh_2VPwX-uQQBT_2IiE",
             authDomain: "sistemas-picadasconcordia.firebaseapp.com",
@@ -163,6 +164,7 @@
             console.warn("Firebase no configurado aún. Usando datos de prueba locales.");
         }
 
+        // --- DATA & STATE MANAGEMENT ---
         const CLASS_TIME_LIMITS = {
             'Clase 1': 'Tiempo tope: 13.00 seg',
             'Clase 2': 'Tiempo tope: 12.50 seg',
@@ -178,7 +180,7 @@
         };
 
         const APP_STATE = {
-            view: 'login', 
+            view: 'login',
             user: null, 
             registeredUsers: [
                 { doc: '111', password: 'admin', role: 'admin', name: 'Administrador' }
@@ -205,7 +207,8 @@
                 classes: []
             },
             calendar: [],
-            notifications: [], // Nueva bandeja de entrada para soporte
+            notifications: [], 
+            userNotifications: [],
             liveStatus: {
                 active: false,
                 category: null,
@@ -251,6 +254,7 @@
                     history: APP_STATE.history,
                     calendar: APP_STATE.calendar,
                     notifications: APP_STATE.notifications,
+                    userNotifications: APP_STATE.userNotifications,
                     timeLimits: CLASS_TIME_LIMITS,
                     registeredUsers: APP_STATE.registeredUsers
                 }));
@@ -273,13 +277,14 @@
                     
                     APP_STATE.calendar = parsed.calendar || [];
                     APP_STATE.notifications = parsed.notifications || [];
-                    
+                    APP_STATE.userNotifications = parsed.userNotifications || [];                    
                     APP_STATE.registeredUsers = parsed.registeredUsers || APP_STATE.registeredUsers;
                     Object.assign(CLASS_TIME_LIMITS, parsed.timeLimits || {});
                 }
             } catch(e) {}
         }
 
+        // --- UTILS ---
         function showToast(message, type = 'info') {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
@@ -313,6 +318,7 @@
             document.getElementById('app').scrollTop = 0;
         }
 
+        // --- RENDERIZADO PRINCIPAL ---
         function render() {
             const app = document.getElementById('app');
             let content = '';
@@ -338,12 +344,14 @@
                 case 'adminEnrollment': content += renderAdminEnrollment(); break;
                 case 'support': content += renderSupport(); break;
                 case 'notifications': content += renderNotifications(); break;
+                case 'userNotifications': content += renderUserNotifications(); break;
                 default: content += renderLogin();
             }
             
             content += '</main>';
             app.innerHTML = content;
 
+            // Consultar clima solo si estamos en el calendario
             if (APP_STATE.view === 'calendar') {
                 APP_STATE.calendar.forEach(ev => {
                     fetchWeatherForConcordia(ev, `weather-${ev.id}`);
@@ -351,6 +359,7 @@
             }
         }
 
+        // --- VISTAS ---
         function renderHeader() {
             return `
                 <header class="bg-picadas-dark border-b border-gray-800 p-4 sticky top-0 z-40 shadow-md" style="padding-top: max(1rem, env(safe-area-inset-top));">
@@ -569,23 +578,34 @@
                         <p class="text-white/80 text-sm">Control y transmisión.</p>
                     </button>
 
-                    <button onclick="setView('notifications')" class="group relative overflow-hidden bg-gray-900 border border-gray-700 p-6 rounded-2xl hover:border-yellow-500 transition-colors text-left flex flex-col justify-end min-h-[120px] shadow-lg mb-4 md:mb-0">
+                    <button onclick="setView('notifications')" class="group relative overflow-hidden bg-gray-900 border border-gray-700 p-6 rounded-2xl hover:border-yellow-500 transition-colors text-left flex flex-col justify-end min-h-[120px] shadow-lg mb-4 md:mb-0 md:col-span-1">
                         <div class="absolute top-4 right-4 bg-black/50 p-3 rounded-full text-yellow-500 group-hover:scale-110 transition-transform">
                             <i class="fas fa-bell text-2xl"></i>
                         </div>
                         ${unreadCount > 0 ? `<div class="absolute top-4 left-4 bg-red-600 text-white text-xs font-bold px-2 py-1 rounded-full animate-pulse">${unreadCount} Nuevas</div>` : ''}
-                        <h3 class="text-xl font-display font-bold text-white mb-1">Notificaciones</h3>
-                        <p class="text-gray-400 text-sm">Bandeja de soporte.</p>
+                        <h3 class="text-xl font-display font-bold text-white mb-1">Bandeja Entrada</h3>
+                        <p class="text-gray-400 text-sm">Reportes de usuarios.</p>
                     </button>
                 `;
             }
 
+            // Calculate user unread notifications
+            const unreadUserCount = APP_STATE.userNotifications ? APP_STATE.userNotifications.filter(n => n.doc === APP_STATE.user.doc || n.doc === 'all').length : 0;
+
             return `
                 <div class="flex-1 p-6 space-y-6 fade-in pb-20">
-                    <div class="mb-8">
-                        <h2 class="text-3xl font-display font-bold text-white">Hola, ${APP_STATE.user.name}</h2>
-                        <p class="text-gray-400">¿Qué deseas ver hoy?</p>
-                        ${APP_STATE.user.role === 'admin' ? '<span class="inline-block mt-2 bg-picadas-pink text-white text-xs px-2 py-1 rounded font-bold uppercase tracking-wide">Modo Admin</span>' : ''}
+                    <div class="mb-8 flex justify-between items-start">
+                        <div>
+                            <h2 class="text-3xl font-display font-bold text-white">Hola, ${APP_STATE.user.name.split(' ')[0]}</h2>
+                            <p class="text-gray-400">¿Qué deseas ver hoy?</p>
+                            ${APP_STATE.user.role === 'admin' ? '<span class="inline-block mt-2 bg-picadas-pink text-white text-xs px-2 py-1 rounded font-bold uppercase tracking-wide">Modo Admin</span>' : ''}
+                        </div>
+                        ${APP_STATE.user.role !== 'admin' ? `
+                        <button onclick="setView('userNotifications')" class="relative bg-picadas-card border border-gray-800 p-3 rounded-xl hover:border-picadas-pink transition-colors text-gray-400 hover:text-white">
+                            <i class="fas fa-bell text-xl"></i>
+                            ${unreadUserCount > 0 ? `<span class="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-picadas-pink text-[9px] font-bold text-white">${unreadUserCount}</span>` : ''}
+                        </button>
+                        ` : ''}
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -626,29 +646,34 @@
 
             let notificationsHtml = '';
             if (!APP_STATE.notifications || APP_STATE.notifications.length === 0) {
-                notificationsHtml = `<div class="text-center text-gray-500 py-8">No hay notificaciones nuevas.</div>`;
+                notificationsHtml = `<div class="text-center text-gray-500 py-8 bg-picadas-card rounded-2xl border border-gray-800">No hay mensajes en la bandeja de entrada.</div>`;
             } else {
                 notificationsHtml = APP_STATE.notifications.map(n => {
                     const icon = n.type === 'técnico' ? 'fa-wrench text-gray-400' : 'fa-comment-alt text-picadas-pink';
                     return `
-                        <div class="bg-picadas-card p-5 rounded-2xl border border-gray-800 hover:border-gray-600 transition-colors relative">
-                            <button onclick="deleteNotification(${n.id})" class="absolute top-4 right-4 text-gray-500 hover:text-red-500 transition-colors" title="Eliminar"><i class="fas fa-trash"></i></button>
+                        <div class="bg-picadas-card p-5 rounded-2xl border border-gray-800 transition-colors relative mb-4">
+                            <button onclick="deleteNotification(${n.id})" class="absolute top-4 right-4 text-gray-500 hover:text-red-500 transition-colors bg-black p-2 rounded-lg" title="Eliminar Mensaje sin responder"><i class="fas fa-trash"></i></button>
                             <div class="flex items-center gap-2 mb-2">
                                 <i class="fas ${icon}"></i>
                                 <span class="font-bold text-white uppercase text-sm">${n.type}</span>
-                                <span class="text-xs text-gray-500 ml-auto mr-6">${n.date}</span>
+                                <span class="text-xs text-gray-500 ml-auto mr-8">${n.date}</span>
                             </div>
                             <p class="text-sm text-gray-300 mb-3 bg-black/50 p-3 rounded-lg border border-gray-800">${n.message}</p>
-                            <div class="text-xs text-gray-500">
+                            <div class="text-xs text-gray-500 mb-3">
                                 Enviado por: <span class="text-white font-bold">${n.user}</span> (DNI: ${n.doc})
                             </div>
+                            
+                            <form onsubmit="replyToNotification(event, ${n.id}, '${n.doc}')" class="mt-4 border-t border-gray-800 pt-3 flex gap-2">
+                                <input type="text" id="reply-${n.id}" required class="flex-1 px-3 py-2 border border-gray-700 rounded-lg bg-black text-sm text-white focus:outline-none focus:border-picadas-pink" placeholder="Escribir respuesta a ${n.user.split(' ')[0]}...">
+                                <button type="submit" class="bg-picadas-pink hover:bg-picadas-pinkDark text-white px-3 py-2 rounded-lg text-sm font-bold transition-colors" title="Enviar respuesta"><i class="fas fa-paper-plane"></i></button>
+                            </form>
                         </div>
                     `;
                 }).join('');
             }
 
             return `
-                <div class="flex-1 p-6 fade-in pb-24">
+                <div class="flex-1 p-6 fade-in pb-24 max-w-2xl mx-auto w-full">
                     <div class="flex items-center gap-3 mb-6">
                         <button onclick="setView('dashboard')" class="text-gray-400 hover:text-white p-2 border border-gray-700 rounded-lg bg-black">
                             <i class="fas fa-arrow-left"></i>
@@ -658,6 +683,63 @@
                         </h2>
                     </div>
                     <div class="space-y-4">
+                        ${notificationsHtml}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderUserNotifications() {
+            if (!APP_STATE.userNotifications) APP_STATE.userNotifications = [];
+            
+            const myNotifications = APP_STATE.userNotifications.filter(n => n.doc === APP_STATE.user.doc || n.doc === 'all').reverse();
+
+            let notificationsHtml = '';
+            if (myNotifications.length === 0) {
+                notificationsHtml = `
+                    <div class="text-center text-gray-500 py-12 bg-picadas-card rounded-2xl border border-gray-800 flex flex-col items-center justify-center">
+                        <i class="far fa-bell-slash text-4xl mb-3 text-gray-700"></i>
+                        <p>No tienes notificaciones nuevas.</p>
+                    </div>`;
+            } else {
+                notificationsHtml = myNotifications.map(n => {
+                    let iconClass = 'fa-info-circle text-blue-500';
+                    let bgClass = 'bg-picadas-card border-gray-800';
+                    
+                    if (n.type === 'reply') {
+                        iconClass = 'fa-reply text-picadas-pink';
+                        bgClass = 'bg-picadas-pink/5 border-picadas-pink/30';
+                    } else if (n.type === 'system') {
+                        iconClass = 'fa-calendar-check text-green-500';
+                    }
+
+                    return `
+                        <div class="${bgClass} p-4 rounded-xl border relative mb-3 hover:border-gray-600 transition-colors">
+                             <button onclick="deleteUserNotification(${n.id})" class="absolute top-3 right-3 text-gray-600 hover:text-red-500 transition-colors" title="Eliminar"><i class="fas fa-times"></i></button>
+                            <div class="flex items-start gap-3">
+                                <div class="mt-1"><i class="fas ${iconClass} text-lg"></i></div>
+                                <div class="pr-6">
+                                    <h4 class="text-white font-bold text-sm mb-1">${n.title}</h4>
+                                    <p class="text-sm text-gray-300 leading-relaxed">${n.message}</p>
+                                    <span class="text-[10px] text-gray-500 block mt-2">${n.date}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            return `
+                <div class="flex-1 p-6 fade-in pb-24 max-w-2xl mx-auto w-full">
+                    <div class="flex items-center gap-3 mb-6">
+                        <button onclick="setView('dashboard')" class="text-gray-400 hover:text-white p-2 border border-gray-700 rounded-lg bg-black">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <h2 class="text-2xl font-display font-bold text-white uppercase flex items-center gap-2">
+                            Mis Notificaciones
+                        </h2>
+                    </div>
+                    <div class="space-y-0">
                         ${notificationsHtml}
                     </div>
                 </div>
@@ -1484,6 +1566,7 @@
             `;
         }
 
+        // --- HANDLERS ---
         function handleLogin(e) {
             e.preventDefault();
             const doc = document.getElementById('loginDoc').value;
@@ -1599,15 +1682,6 @@
             saveToFirebase();
             showToast(`Mensaje enviado al administrador correctamente.`, 'success');
             textarea.value = '';
-        }
-
-        function deleteNotification(id) {
-            if(confirm('¿Eliminar esta notificación?')) {
-                APP_STATE.notifications = APP_STATE.notifications.filter(n => n.id !== id);
-                saveToFirebase();
-                render();
-                showToast('Notificación eliminada', 'info');
-            }
         }
 
         function copyCBU() {
@@ -1729,6 +1803,17 @@
                 temp: '-',
                 icon: 'fa-calendar text-blue-500'
             });
+
+            // Enviar notificación a todos los usuarios
+            if(!APP_STATE.userNotifications) APP_STATE.userNotifications = [];
+            APP_STATE.userNotifications.push({
+                id: Date.now() + 1,
+                doc: 'all', // Indicador para que lo vean todos
+                type: 'system',
+                title: '¡Nueva Fecha Confirmada!',
+                message: `Se ha programado: ${titleVal} para el día ${formattedDate}. ¡Prepará tu máquina!`,
+                date: new Date().toLocaleString([], {hour: '2-digit', minute:'2-digit', day:'2-digit', month:'2-digit', year:'2-digit'})
+            });
             
             saveToFirebase();
             render();
@@ -1741,6 +1826,46 @@
                 saveToFirebase();
                 render();
                 showToast('Fecha eliminada', 'info');
+            }
+        }
+
+        function replyToNotification(e, id, userDoc) {
+            e.preventDefault();
+            const input = document.getElementById(`reply-${id}`);
+            const replyMessage = input.value;
+
+            // Generar notificación para el usuario específico
+            if(!APP_STATE.userNotifications) APP_STATE.userNotifications = [];
+            
+            APP_STATE.userNotifications.push({
+                id: Date.now(),
+                doc: userDoc,
+                type: 'reply',
+                title: 'Respuesta de Soporte',
+                message: replyMessage,
+                date: new Date().toLocaleString([], {hour: '2-digit', minute:'2-digit', day:'2-digit', month:'2-digit', year:'2-digit'})
+            });
+
+            // Eliminar de la bandeja del admin
+            APP_STATE.notifications = APP_STATE.notifications.filter(n => n.id !== id);
+
+            saveToFirebase();
+            render();
+            showToast(`Respuesta enviada.`, 'success');
+        }
+
+        function deleteUserNotification(id) {
+            APP_STATE.userNotifications = APP_STATE.userNotifications.filter(n => n.id !== id);
+            saveToFirebase();
+            render();
+        }
+
+        function deleteNotification(id) {
+            if(confirm('¿Eliminar este mensaje sin responder?')) {
+                APP_STATE.notifications = APP_STATE.notifications.filter(n => n.id !== id);
+                saveToFirebase();
+                render();
+                showToast('Mensaje eliminado', 'info');
             }
         }
 
@@ -1875,12 +2000,8 @@
                 
                 APP_STATE.history.balances.push(snapshot);
                 
-                APP_STATE.balance = {
-                    spectators: 0,
-                    insurance: 0,
-                    autoEnrollment: 0,
-                    motoEnrollment: 0
-                };
+                // Reset balance
+                APP_STATE.balance = { spectators: 0, insurance: 0, autoEnrollment: 0, motoEnrollment: 0 };
                 
                 saveToFirebase();
                 APP_STATE.liveTab = 'fechas';
@@ -1919,6 +2040,7 @@
             }
         }
 
+        // --- FETCH CLIMA ---
         async function fetchWeatherForConcordia(ev, elementId) {
             let rawDate = ev.rawDate;
             
@@ -1940,7 +2062,8 @@
                 if (!el) return;
 
                 if (diffDays >= 0 && diffDays <= 14) {
-                    const url = `https://api.open-meteo.com/v1/forecast?latitude=-31.3931&longitude=-58.0209&daily=weathercode,temperature_2m_max&timezone=America%2FSao_Paulo&start_date=${rawDate}&end_date=${rawDate}`;
+                    // API Open-Meteo para Concordia, Entre Ríos, Argentina
+                    const url = `https://api.open-meteo.com/v1/forecast?latitude=-31.3931&longitude=-58.0209&daily=weathercode,temperature_2m_max&timezone=America%2FArgentina%2FBuenos_Aires&start_date=${rawDate}&end_date=${rawDate}`;
                     
                     const response = await fetch(url);
                     const data = await response.json();
@@ -1973,6 +2096,7 @@
             }
         }
 
+        // --- INIT APP ---
         function initApp() {
             loadFromFirebase();
             
