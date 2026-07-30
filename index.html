@@ -205,6 +205,7 @@
                 classes: []
             },
             calendar: [],
+            notifications: [], // Nueva bandeja de entrada para soporte
             liveStatus: {
                 active: false,
                 category: null,
@@ -249,6 +250,7 @@
                     balance: APP_STATE.balance,
                     history: APP_STATE.history,
                     calendar: APP_STATE.calendar,
+                    notifications: APP_STATE.notifications,
                     timeLimits: CLASS_TIME_LIMITS,
                     registeredUsers: APP_STATE.registeredUsers
                 }));
@@ -269,7 +271,8 @@
                     if(!APP_STATE.history.balances) APP_STATE.history.balances = [];
                     if(!APP_STATE.history.classes) APP_STATE.history.classes = [];
                     
-                    APP_STATE.calendar = parsed.calendar || APP_STATE.calendar || [];
+                    APP_STATE.calendar = parsed.calendar || [];
+                    APP_STATE.notifications = parsed.notifications || [];
                     
                     APP_STATE.registeredUsers = parsed.registeredUsers || APP_STATE.registeredUsers;
                     Object.assign(CLASS_TIME_LIMITS, parsed.timeLimits || {});
@@ -334,6 +337,7 @@
                 case 'payment': content += renderPayment(); break;
                 case 'adminEnrollment': content += renderAdminEnrollment(); break;
                 case 'support': content += renderSupport(); break;
+                case 'notifications': content += renderNotifications(); break;
                 default: content += renderLogin();
             }
             
@@ -554,13 +558,24 @@
         function renderDashboard() {
             let adminPanel = '';
             if (APP_STATE.user.role === 'admin') {
+                const unreadCount = APP_STATE.notifications ? APP_STATE.notifications.length : 0;
+                
                 adminPanel = `
-                    <button onclick="setView('liveEvent')" class="group relative overflow-hidden bg-picadas-pinkDark border border-picadas-pink p-6 rounded-2xl hover:bg-picadas-pink transition-colors text-left flex flex-col justify-end min-h-[120px] md:col-span-2 shadow-[0_0_20px_rgba(210,0,179,0.4)] animate-pulse hover:animate-none mb-4">
+                    <button onclick="setView('liveEvent')" class="group relative overflow-hidden bg-picadas-pinkDark border border-picadas-pink p-6 rounded-2xl hover:bg-picadas-pink transition-colors text-left flex flex-col justify-end min-h-[120px] shadow-[0_0_20px_rgba(210,0,179,0.4)] animate-pulse hover:animate-none mb-4 md:mb-0">
                         <div class="absolute top-4 right-4 bg-white/20 p-3 rounded-full text-white group-hover:scale-110 transition-transform">
                             <i class="fas fa-broadcast-tower text-2xl"></i>
                         </div>
                         <h3 class="text-2xl font-display font-bold text-white mb-1">Evento en Vivo</h3>
-                        <p class="text-white/80 text-sm">Control de puerta, torre, valores, caja y transmisión.</p>
+                        <p class="text-white/80 text-sm">Control y transmisión.</p>
+                    </button>
+
+                    <button onclick="setView('notifications')" class="group relative overflow-hidden bg-gray-900 border border-gray-700 p-6 rounded-2xl hover:border-yellow-500 transition-colors text-left flex flex-col justify-end min-h-[120px] shadow-lg mb-4 md:mb-0">
+                        <div class="absolute top-4 right-4 bg-black/50 p-3 rounded-full text-yellow-500 group-hover:scale-110 transition-transform">
+                            <i class="fas fa-bell text-2xl"></i>
+                        </div>
+                        ${unreadCount > 0 ? `<div class="absolute top-4 left-4 bg-red-600 text-white text-xs font-bold px-2 py-1 rounded-full animate-pulse">${unreadCount} Nuevas</div>` : ''}
+                        <h3 class="text-xl font-display font-bold text-white mb-1">Notificaciones</h3>
+                        <p class="text-gray-400 text-sm">Bandeja de soporte.</p>
                     </button>
                 `;
             }
@@ -598,6 +613,52 @@
                             <h3 class="text-xl font-display font-bold text-white mb-1">Soporte y Ayuda</h3>
                             <p class="text-gray-400 text-sm">Reporta problemas o deja tu opinión.</p>
                         </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderNotifications() {
+            if (APP_STATE.user.role !== 'admin') {
+                setView('dashboard');
+                return '';
+            }
+
+            let notificationsHtml = '';
+            if (!APP_STATE.notifications || APP_STATE.notifications.length === 0) {
+                notificationsHtml = `<div class="text-center text-gray-500 py-8">No hay notificaciones nuevas.</div>`;
+            } else {
+                notificationsHtml = APP_STATE.notifications.map(n => {
+                    const icon = n.type === 'técnico' ? 'fa-wrench text-gray-400' : 'fa-comment-alt text-picadas-pink';
+                    return `
+                        <div class="bg-picadas-card p-5 rounded-2xl border border-gray-800 hover:border-gray-600 transition-colors relative">
+                            <button onclick="deleteNotification(${n.id})" class="absolute top-4 right-4 text-gray-500 hover:text-red-500 transition-colors" title="Eliminar"><i class="fas fa-trash"></i></button>
+                            <div class="flex items-center gap-2 mb-2">
+                                <i class="fas ${icon}"></i>
+                                <span class="font-bold text-white uppercase text-sm">${n.type}</span>
+                                <span class="text-xs text-gray-500 ml-auto mr-6">${n.date}</span>
+                            </div>
+                            <p class="text-sm text-gray-300 mb-3 bg-black/50 p-3 rounded-lg border border-gray-800">${n.message}</p>
+                            <div class="text-xs text-gray-500">
+                                Enviado por: <span class="text-white font-bold">${n.user}</span> (DNI: ${n.doc})
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            return `
+                <div class="flex-1 p-6 fade-in pb-24">
+                    <div class="flex items-center gap-3 mb-6">
+                        <button onclick="setView('dashboard')" class="text-gray-400 hover:text-white p-2 border border-gray-700 rounded-lg bg-black">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <h2 class="text-2xl font-display font-bold text-white uppercase flex items-center gap-2">
+                            <i class="fas fa-bell text-yellow-500"></i> Notificaciones
+                        </h2>
+                    </div>
+                    <div class="space-y-4">
+                        ${notificationsHtml}
                     </div>
                 </div>
             `;
@@ -1405,7 +1466,7 @@
                             <h3 class="text-xl font-bold text-white mb-2"><i class="fas fa-wrench text-gray-400 mr-2"></i> Problemas Técnicos</h3>
                             <p class="text-sm text-gray-400 mb-4">¿Tienes problemas con la app, tu cuenta o un pago?</p>
                             <form onsubmit="handleSupportSubmit(event, 'técnico')" class="space-y-3">
-                                <textarea required rows="3" class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink resize-none" placeholder="Describe tu problema aquí..."></textarea>
+                                <textarea id="supportText-técnico" required rows="3" class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink resize-none" placeholder="Describe tu problema aquí..."></textarea>
                                 <button type="submit" class="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors">Enviar Reporte</button>
                             </form>
                         </div>
@@ -1414,7 +1475,7 @@
                             <h3 class="text-xl font-bold text-white mb-2"><i class="far fa-comment-alt text-gray-400 mr-2"></i> Opiniones y Quejas</h3>
                             <p class="text-sm text-gray-400 mb-4">¿Algo no te gustó del evento o la organización? Envía un mensaje directo al administrador.</p>
                             <form onsubmit="handleSupportSubmit(event, 'inconformidad')" class="space-y-3">
-                                <textarea required rows="3" class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink resize-none" placeholder="Escribe tu mensaje..."></textarea>
+                                <textarea id="supportText-inconformidad" required rows="3" class="block w-full px-4 py-3 border border-gray-700 rounded-xl bg-black text-white focus:outline-none focus:border-picadas-pink resize-none" placeholder="Escribe tu mensaje..."></textarea>
                                 <button type="submit" class="bg-picadas-pink hover:bg-picadas-pinkDark text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors">Enviar Mensaje a Admin</button>
                             </form>
                         </div>
@@ -1521,8 +1582,32 @@
 
         function handleSupportSubmit(e, type) {
             e.preventDefault();
-            showToast(`Mensaje de ${type} enviado correctamente.`, 'success');
-            e.target.reset();
+            const textarea = document.getElementById(`supportText-${type}`);
+            const message = textarea.value;
+
+            if(!APP_STATE.notifications) APP_STATE.notifications = [];
+            
+            APP_STATE.notifications.unshift({
+                id: Date.now(),
+                date: new Date().toLocaleString([], {hour: '2-digit', minute:'2-digit', day:'2-digit', month:'2-digit', year:'2-digit'}),
+                user: APP_STATE.user ? APP_STATE.user.name : 'Usuario',
+                doc: APP_STATE.user ? APP_STATE.user.doc : 'N/A',
+                type: type, 
+                message: message
+            });
+
+            saveToFirebase();
+            showToast(`Mensaje enviado al administrador correctamente.`, 'success');
+            textarea.value = '';
+        }
+
+        function deleteNotification(id) {
+            if(confirm('¿Eliminar esta notificación?')) {
+                APP_STATE.notifications = APP_STATE.notifications.filter(n => n.id !== id);
+                saveToFirebase();
+                render();
+                showToast('Notificación eliminada', 'info');
+            }
         }
 
         function copyCBU() {
@@ -1633,7 +1718,6 @@
                 return;
             }
             
-            // Convierte formato YYYY-MM-DD a DD/MM/YYYY
             const formattedDate = dateVal.split('-').reverse().join('/');
             
             APP_STATE.calendar.push({
@@ -1838,7 +1922,6 @@
         async function fetchWeatherForConcordia(ev, elementId) {
             let rawDate = ev.rawDate;
             
-            // Soporte para fechas viejas guardadas en memoria
             if (!rawDate && ev.date && ev.date.includes('/')) {
                 const parts = ev.date.split('/');
                 if (parts.length === 3) rawDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
@@ -1856,9 +1939,7 @@
                 const el = document.getElementById(elementId);
                 if (!el) return;
 
-                // Si falta entre 0 y 14 días (límite de la API de Open-Meteo)
                 if (diffDays >= 0 && diffDays <= 14) {
-                    // Coordenadas de Concordia, Entre Ríos (-31.3931, -58.0209)
                     const url = `https://api.open-meteo.com/v1/forecast?latitude=-31.3931&longitude=-58.0209&daily=weathercode,temperature_2m_max&timezone=America%2FSao_Paulo&start_date=${rawDate}&end_date=${rawDate}`;
                     
                     const response = await fetch(url);
@@ -1881,11 +1962,9 @@
                         el.classList.add('fade-in');
                     }
                 } else if (diffDays > 14) {
-                     // Cuenta regresiva
                      el.innerHTML = `<i class="fas fa-hourglass-half text-picadas-pink text-xl mb-1"></i><p class="text-[10px] font-bold text-gray-300 leading-tight text-center mt-1">Faltan<br>${diffDays} días</p>`;
                      el.classList.add('fade-in');
                 } else if (diffDays < 0) {
-                     // Evento que ya pasó
                      el.innerHTML = `<i class="fas fa-flag-checkered text-gray-600 text-2xl mb-1"></i><p class="text-[9px] font-bold text-gray-500 uppercase mt-1">Finalizado</p>`;
                      el.classList.add('fade-in');
                 }
