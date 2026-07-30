@@ -204,6 +204,7 @@
                 balances: [],
                 classes: []
             },
+            calendar: [],
             liveStatus: {
                 active: false,
                 category: null,
@@ -247,6 +248,7 @@
                     prices: APP_STATE.prices,
                     balance: APP_STATE.balance,
                     history: APP_STATE.history,
+                    calendar: APP_STATE.calendar,
                     timeLimits: CLASS_TIME_LIMITS,
                     registeredUsers: APP_STATE.registeredUsers
                 }));
@@ -266,6 +268,8 @@
                     if(parsed.history) APP_STATE.history = parsed.history;
                     if(!APP_STATE.history.balances) APP_STATE.history.balances = [];
                     if(!APP_STATE.history.classes) APP_STATE.history.classes = [];
+                    
+                    APP_STATE.calendar = parsed.calendar || APP_STATE.calendar || [];
                     
                     APP_STATE.registeredUsers = parsed.registeredUsers || APP_STATE.registeredUsers;
                     Object.assign(CLASS_TIME_LIMITS, parsed.timeLimits || {});
@@ -335,6 +339,12 @@
             
             content += '</main>';
             app.innerHTML = content;
+
+            if (APP_STATE.view === 'calendar') {
+                APP_STATE.calendar.forEach(ev => {
+                    fetchWeatherForConcordia(ev, `weather-${ev.id}`);
+                });
+            }
         }
 
         function renderHeader() {
@@ -602,14 +612,47 @@
                         <div class="flex gap-2">
                             <input type="date" id="newDate" class="flex-1 px-3 py-2 border border-gray-700 rounded-lg bg-black text-white focus:outline-none focus:border-picadas-pink">
                             <input type="text" id="newDateTitle" placeholder="Ej: 3ra Fecha" class="flex-1 px-3 py-2 border border-gray-700 rounded-lg bg-black text-white focus:outline-none focus:border-picadas-pink">
-                            <button onclick="showToast('Fecha guardada exitosamente', 'success')" class="bg-picadas-pink text-white px-4 py-2 rounded-lg font-bold"><i class="fas fa-plus"></i></button>
+                            <button onclick="addCalendarEvent()" class="bg-picadas-pink text-white px-4 py-2 rounded-lg font-bold shadow-[0_0_10px_rgba(210,0,179,0.4)]"><i class="fas fa-plus"></i></button>
                         </div>
                     </div>
                 `;
             }
 
+            let eventsHtml = APP_STATE.calendar.map(ev => {
+                let adminEventControls = '';
+                if (APP_STATE.user.role === 'admin') {
+                    adminEventControls = `
+                        <button onclick="deleteCalendarEvent(${ev.id})" class="text-gray-500 hover:text-red-500 p-2 ml-2 transition-colors rounded-lg hover:bg-gray-800" title="Eliminar fecha">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    `;
+                }
+
+                return `
+                <div class="bg-picadas-card p-5 rounded-2xl border border-gray-800 flex items-center justify-between hover:border-gray-600 transition-colors">
+                    <div class="flex-1">
+                        <div class="flex items-center justify-between">
+                            <h3 class="font-display font-bold text-xl text-white">${ev.title}</h3>
+                            ${adminEventControls}
+                        </div>
+                        <p class="text-gray-400 text-sm flex items-center gap-2 mt-1">
+                            <i class="far fa-clock"></i> ${ev.date} ${ev.time ? '- ' + ev.time : ''}
+                        </p>
+                    </div>
+                    <div id="weather-${ev.id}" class="ml-4 text-center bg-black/50 p-3 rounded-xl border border-gray-800 min-w-[70px] flex flex-col items-center justify-center transition-all">
+                        <i class="fas ${ev.icon || 'fa-calendar text-blue-500'} text-2xl mb-1"></i>
+                        <p class="text-xs font-bold text-gray-300">${ev.temp || '-'}</p>
+                    </div>
+                </div>
+                `;
+            }).join('');
+
+            if(APP_STATE.calendar.length === 0) {
+                eventsHtml = `<div class="text-center text-gray-500 py-8">No hay fechas programadas.</div>`;
+            }
+
             return `
-                <div class="flex-1 p-6 fade-in">
+                <div class="flex-1 p-6 fade-in pb-24">
                     <h2 class="text-2xl font-display font-bold text-white mb-6 uppercase flex items-center gap-2">
                         <i class="far fa-calendar-alt text-picadas-pink"></i> Calendario de Eventos
                     </h2>
@@ -617,18 +660,7 @@
                     ${adminControls}
 
                     <div class="space-y-4">
-                        <div class="bg-picadas-card p-5 rounded-2xl border border-gray-800 flex items-center justify-between">
-                            <div>
-                                <h3 class="font-display font-bold text-xl text-white">4ta Fecha - Campeonato</h3>
-                                <p class="text-gray-400 text-sm flex items-center gap-2 mt-1">
-                                    <i class="far fa-clock"></i> 15 de Octubre, 2026 - 09:00 AM
-                                </p>
-                            </div>
-                            <div class="text-center bg-black/50 p-3 rounded-xl border border-gray-800">
-                                <i class="fas fa-sun text-yellow-500 text-2xl mb-1"></i>
-                                <p class="text-xs font-bold text-gray-300">24°C</p>
-                            </div>
-                        </div>
+                        ${eventsHtml}
                     </div>
                 </div>
             `;
@@ -1592,6 +1624,42 @@
             }
         }
 
+        function addCalendarEvent() {
+            const dateVal = document.getElementById('newDate').value;
+            const titleVal = document.getElementById('newDateTitle').value;
+            
+            if(!dateVal || !titleVal) {
+                showToast('Completá la fecha y el título', 'error');
+                return;
+            }
+            
+            // Convierte formato YYYY-MM-DD a DD/MM/YYYY
+            const formattedDate = dateVal.split('-').reverse().join('/');
+            
+            APP_STATE.calendar.push({
+                id: Date.now(),
+                title: titleVal,
+                date: formattedDate,
+                rawDate: dateVal,
+                time: '',
+                temp: '-',
+                icon: 'fa-calendar text-blue-500'
+            });
+            
+            saveToFirebase();
+            render();
+            showToast('Fecha guardada exitosamente', 'success');
+        }
+
+        function deleteCalendarEvent(id) {
+            if(confirm('¿Estás seguro de eliminar esta fecha del calendario?')) {
+                APP_STATE.calendar = APP_STATE.calendar.filter(ev => ev.id !== id);
+                saveToFirebase();
+                render();
+                showToast('Fecha eliminada', 'info');
+            }
+        }
+
         function calculateGateTotal() {
             const isRacer = document.getElementById('gateIsRacer').checked;
             let total = 0;
@@ -1764,6 +1832,65 @@
                 APP_STATE.liveTab = 'clases';
                 render();
                 showToast(`Clase ${cls} finalizada y guardada en el historial.`, 'success');
+            }
+        }
+
+        async function fetchWeatherForConcordia(ev, elementId) {
+            let rawDate = ev.rawDate;
+            
+            // Soporte para fechas viejas guardadas en memoria
+            if (!rawDate && ev.date && ev.date.includes('/')) {
+                const parts = ev.date.split('/');
+                if (parts.length === 3) rawDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+            }
+            if (!rawDate) return;
+
+            try {
+                const today = new Date();
+                today.setHours(0,0,0,0);
+                const targetDate = new Date(rawDate + 'T00:00:00'); 
+                
+                const diffTime = targetDate - today;
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                
+                const el = document.getElementById(elementId);
+                if (!el) return;
+
+                // Si falta entre 0 y 14 días (límite de la API de Open-Meteo)
+                if (diffDays >= 0 && diffDays <= 14) {
+                    // Coordenadas de Concordia, Entre Ríos (-31.3931, -58.0209)
+                    const url = `https://api.open-meteo.com/v1/forecast?latitude=-31.3931&longitude=-58.0209&daily=weathercode,temperature_2m_max&timezone=America%2FSao_Paulo&start_date=${rawDate}&end_date=${rawDate}`;
+                    
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    
+                    if (data.daily && data.daily.temperature_2m_max && data.daily.temperature_2m_max.length > 0) {
+                        const temp = Math.round(data.daily.temperature_2m_max[0]) + '°C';
+                        const code = data.daily.weathercode[0];
+                        
+                        let icon = 'fa-cloud text-gray-400';
+                        if (code === 0) icon = 'fa-sun text-yellow-500';
+                        else if (code <= 3) icon = 'fa-cloud-sun text-gray-300';
+                        else if (code <= 48) icon = 'fa-smog text-gray-400';
+                        else if (code <= 67) icon = 'fa-cloud-rain text-blue-400';
+                        else if (code <= 77) icon = 'fa-snowflake text-white';
+                        else if (code <= 82) icon = 'fa-cloud-showers-heavy text-blue-500';
+                        else if (code >= 95) icon = 'fa-bolt text-yellow-400 text-[20px] drop-shadow-[0_0_8px_rgba(250,204,21,0.5)]';
+
+                        el.innerHTML = `<i class="fas ${icon} text-2xl mb-1"></i><p class="text-xs font-bold text-gray-300">${temp}</p>`;
+                        el.classList.add('fade-in');
+                    }
+                } else if (diffDays > 14) {
+                     // Cuenta regresiva
+                     el.innerHTML = `<i class="fas fa-hourglass-half text-picadas-pink text-xl mb-1"></i><p class="text-[10px] font-bold text-gray-300 leading-tight text-center mt-1">Faltan<br>${diffDays} días</p>`;
+                     el.classList.add('fade-in');
+                } else if (diffDays < 0) {
+                     // Evento que ya pasó
+                     el.innerHTML = `<i class="fas fa-flag-checkered text-gray-600 text-2xl mb-1"></i><p class="text-[9px] font-bold text-gray-500 uppercase mt-1">Finalizado</p>`;
+                     el.classList.add('fade-in');
+                }
+            } catch (error) {
+                console.log("Error consultando el clima:", error);
             }
         }
 
