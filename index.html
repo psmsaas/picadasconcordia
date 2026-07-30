@@ -14,7 +14,7 @@
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- Firebase SDK (Versión Compat) -->
+    <!-- Firebase SDK (Versión Compat para integración sencilla con Vanilla JS) -->
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -237,6 +237,9 @@
             }
         };
 
+        // Variables Globales
+        let dashboardInterval;
+
         APP_STATE.championship.motos.classes.forEach(cls => {
             if (!APP_STATE.championship.motos.data[cls]) APP_STATE.championship.motos.data[cls] = [];
         });
@@ -313,9 +316,60 @@
         }
 
         function setView(viewName) {
+            if(dashboardInterval) clearInterval(dashboardInterval);
+            
             APP_STATE.view = viewName;
             render();
             document.getElementById('app').scrollTop = 0;
+        }
+
+        // --- SISTEMA DE REGLAS DE INSCRIPCIÓN ---
+        function getEnrollmentStatus(cat, cls) {
+            const now = new Date();
+            let nextEvent = null;
+            let minDiff = Infinity;
+            
+            // 1. Buscar si hay una fecha próxima no finalizada
+            if (APP_STATE.calendar) {
+                APP_STATE.calendar.forEach(ev => {
+                    if (ev.rawDate && !ev.finished) {
+                        const evDate = new Date(ev.rawDate + 'T00:00:00');
+                        const diff = evDate - now;
+                        if (diff > -86400000 && diff < minDiff) { 
+                            minDiff = diff;
+                            nextEvent = ev;
+                        }
+                    }
+                });
+            }
+
+            if (!nextEvent) {
+                return { open: false, reason: 'SIN FECHA CONFIRMADA' };
+            }
+
+            // 2. Control ventana de 5 días (5 * 24 * 60 * 60 * 1000 ms = 432000000 ms)
+            if (minDiff > 432000000) {
+                return { open: false, reason: 'ABRE 5 DÍAS ANTES' };
+            }
+
+            // 3. Control de clase iniciada por admin (Live Event)
+            if (APP_STATE.liveStatus.active && APP_STATE.liveStatus.category === cat && APP_STATE.liveStatus.class === cls) {
+                return { open: false, reason: 'EN PISTA - CERRADA' };
+            }
+
+            // 4. Control si la clase ya finalizó hoy
+            const currentChampionshipDate = APP_STATE.championship[cat].dates[APP_STATE.championship[cat].dates.length - 1];
+            const alreadyFinished = APP_STATE.history.classes.some(c => 
+                c.category === cat && 
+                c.className === cls && 
+                c.championshipDate === currentChampionshipDate
+            );
+
+            if (alreadyFinished) {
+                return { open: false, reason: 'CLASE FINALIZADA' };
+            }
+
+            return { open: true };
         }
 
         // --- RENDERIZADO PRINCIPAL ---
@@ -564,11 +618,49 @@
             `;
         }
 
+        function startDashboardCountdown(targetDate) {
+            if(dashboardInterval) clearInterval(dashboardInterval);
+            
+            const update = () => {
+                const el = document.getElementById('countdown-timer-boxes');
+                if(!el) return;
+                
+                const now = new Date();
+                const diff = targetDate - now;
+                
+                if(diff <= 0) {
+                    el.innerHTML = '<div class="text-green-500 font-bold text-2xl uppercase animate-pulse w-full text-center py-4 tracking-widest"><i class="fas fa-flag-checkered mr-2"></i> ¡EL EVENTO ES HOY!</div>';
+                    clearInterval(dashboardInterval);
+                    return;
+                }
+                
+                const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+                const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
+                const m = Math.floor((diff / 1000 / 60) % 60);
+                const s = Math.floor((diff / 1000) % 60);
+
+                const renderBox = (num, label) => `
+                    <div class="flex flex-col items-center">
+                        <div class="bg-black/50 border border-gray-700 w-12 h-12 md:w-16 md:h-16 rounded-xl flex items-center justify-center mb-1.5 shadow-inner backdrop-blur-sm">
+                            <span class="font-display font-bold text-xl md:text-3xl text-white">${num < 10 ? '0'+num : num}</span>
+                        </div>
+                        <span class="text-[9px] md:text-[10px] text-gray-400 uppercase font-bold tracking-widest">${label}</span>
+                    </div>
+                `;
+                
+                el.innerHTML = renderBox(d, 'Días') + renderBox(h, 'Horas') + renderBox(m, 'Min') + renderBox(s, 'Seg');
+            };
+            
+            update(); 
+            dashboardInterval = setInterval(update, 1000);
+        }
+
         function renderDashboard() {
+            const unreadAdminCount = APP_STATE.notifications ? APP_STATE.notifications.filter(n => !n.read).length : 0;
+            const unreadUserCount = APP_STATE.userNotifications ? APP_STATE.userNotifications.filter(n => !n.read && (n.doc === APP_STATE.user.doc || n.doc === 'all')).length : 0;
+
             let adminPanel = '';
             if (APP_STATE.user.role === 'admin') {
-                const unreadCount = APP_STATE.notifications ? APP_STATE.notifications.length : 0;
-                
                 adminPanel = `
                     <button onclick="setView('liveEvent')" class="group relative overflow-hidden bg-picadas-pinkDark border border-picadas-pink p-6 rounded-2xl hover:bg-picadas-pink transition-colors text-left flex flex-col justify-end min-h-[120px] shadow-[0_0_20px_rgba(210,0,179,0.4)] animate-pulse hover:animate-none mb-4 md:mb-0">
                         <div class="absolute top-4 right-4 bg-white/20 p-3 rounded-full text-white group-hover:scale-110 transition-transform">
@@ -582,19 +674,68 @@
                         <div class="absolute top-4 right-4 bg-black/50 p-3 rounded-full text-yellow-500 group-hover:scale-110 transition-transform">
                             <i class="fas fa-bell text-2xl"></i>
                         </div>
-                        ${unreadCount > 0 ? `<div class="absolute top-4 left-4 bg-red-600 text-white text-xs font-bold px-2 py-1 rounded-full animate-pulse">${unreadCount} Nuevas</div>` : ''}
+                        ${unreadAdminCount > 0 ? `<div class="absolute top-4 left-4 bg-red-600 text-white text-xs font-bold px-2 py-1 rounded-full animate-pulse">${unreadAdminCount} Nuevas</div>` : ''}
                         <h3 class="text-xl font-display font-bold text-white mb-1">Bandeja Entrada</h3>
                         <p class="text-gray-400 text-sm">Reportes de usuarios.</p>
                     </button>
                 `;
             }
 
-            // Calculate user unread notifications
-            const unreadUserCount = APP_STATE.userNotifications ? APP_STATE.userNotifications.filter(n => n.doc === APP_STATE.user.doc || n.doc === 'all').length : 0;
+            let countdownBanner = '';
+            let nextEvent = null;
+            if (APP_STATE.calendar && APP_STATE.calendar.length > 0) {
+                const now = new Date();
+                let minDiff = Infinity;
+                
+                APP_STATE.calendar.forEach(ev => {
+                    if (ev.rawDate && !ev.finished) {
+                        const evDate = new Date(ev.rawDate + 'T00:00:00');
+                        const diff = evDate - now;
+                        if (diff > -86400000 && diff < minDiff) { 
+                            minDiff = diff;
+                            nextEvent = { ...ev, dateObj: evDate };
+                        }
+                    }
+                });
+            }
+
+            if (nextEvent) {
+                countdownBanner = `
+                    <div class="bg-gradient-to-br from-[#1a1a1d] to-black border border-gray-800 p-6 rounded-2xl mb-6 relative overflow-hidden flex flex-col items-center shadow-lg">
+                        <div class="absolute -top-10 -right-10 w-32 h-32 bg-picadas-pink/20 rounded-full blur-3xl"></div>
+                        <div class="absolute -bottom-10 -left-10 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl"></div>
+                        
+                        <div class="z-10 flex flex-col items-center w-full">
+                            <span class="text-[10px] font-bold text-picadas-pink uppercase tracking-[0.2em] mb-1"><i class="fas fa-rocket mr-1"></i> Próximo Evento</span>
+                            <h3 class="text-xl md:text-2xl font-display font-bold text-white mb-5 text-center leading-tight">${nextEvent.title}</h3>
+                            
+                            <div id="countdown-timer-boxes" class="flex gap-2 md:gap-4 justify-center w-full min-h-[80px]">
+                                <!-- Inyectado via JS -->
+                            </div>
+                            
+                            <span class="text-gray-500 text-xs mt-5 bg-black/40 px-3 py-1 rounded-full border border-gray-800"><i class="far fa-calendar-alt text-picadas-pink mr-1"></i> ${nextEvent.date}</span>
+                        </div>
+                    </div>
+                `;
+                setTimeout(() => startDashboardCountdown(nextEvent.dateObj), 50);
+            } else {
+                countdownBanner = `
+                    <div class="bg-gradient-to-br from-[#1a1a1d] to-black border border-gray-800 p-6 rounded-2xl mb-6 relative overflow-hidden flex flex-col items-center shadow-lg justify-center min-h-[160px]">
+                        <div class="absolute -top-10 -right-10 w-32 h-32 bg-gray-600/10 rounded-full blur-3xl"></div>
+                        <div class="absolute -bottom-10 -left-10 w-32 h-32 bg-picadas-pink/5 rounded-full blur-3xl"></div>
+                        
+                        <div class="z-10 flex flex-col items-center w-full">
+                            <span class="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em] mb-2"><i class="fas fa-calendar-times mr-1"></i> Próximo Evento</span>
+                            <h3 class="text-xl md:text-2xl font-display font-bold text-gray-300 mb-2 text-center leading-tight tracking-widest">FECHA A CONFIRMAR</h3>
+                            <p class="text-gray-500 text-xs text-center mt-2">Pronto anunciaremos novedades.</p>
+                        </div>
+                    </div>
+                `;
+            }
 
             return `
                 <div class="flex-1 p-6 space-y-6 fade-in pb-20">
-                    <div class="mb-8 flex justify-between items-start">
+                    <div class="mb-4 flex justify-between items-start">
                         <div>
                             <h2 class="text-3xl font-display font-bold text-white">Hola, ${APP_STATE.user.name.split(' ')[0]}</h2>
                             <p class="text-gray-400">¿Qué deseas ver hoy?</p>
@@ -603,10 +744,12 @@
                         ${APP_STATE.user.role !== 'admin' ? `
                         <button onclick="setView('userNotifications')" class="relative bg-picadas-card border border-gray-800 p-3 rounded-xl hover:border-picadas-pink transition-colors text-gray-400 hover:text-white">
                             <i class="fas fa-bell text-xl"></i>
-                            ${unreadUserCount > 0 ? `<span class="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-picadas-pink text-[9px] font-bold text-white">${unreadUserCount}</span>` : ''}
+                            ${unreadUserCount > 0 ? `<span class="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-picadas-pink text-[10px] font-bold text-white shadow-lg animate-bounce">${unreadUserCount}</span>` : ''}
                         </button>
                         ` : ''}
                     </div>
+
+                    ${countdownBanner}
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         ${adminPanel}
@@ -642,6 +785,14 @@
             if (APP_STATE.user.role !== 'admin') {
                 setView('dashboard');
                 return '';
+            }
+
+            let unreadExist = false;
+            if (APP_STATE.notifications) {
+                APP_STATE.notifications.forEach(n => {
+                    if (!n.read) { n.read = true; unreadExist = true; }
+                });
+                if (unreadExist) saveToFirebase();
             }
 
             let notificationsHtml = '';
@@ -692,6 +843,15 @@
         function renderUserNotifications() {
             if (!APP_STATE.userNotifications) APP_STATE.userNotifications = [];
             
+            let unreadExist = false;
+            APP_STATE.userNotifications.forEach(n => {
+                if ((n.doc === APP_STATE.user.doc || n.doc === 'all') && !n.read) {
+                    n.read = true;
+                    unreadExist = true;
+                }
+            });
+            if (unreadExist) saveToFirebase();
+
             const myNotifications = APP_STATE.userNotifications.filter(n => n.doc === APP_STATE.user.doc || n.doc === 'all').reverse();
 
             let notificationsHtml = '';
@@ -762,6 +922,8 @@
             }
 
             let eventsHtml = APP_STATE.calendar.map(ev => {
+                if (ev.finished) return ''; // No mostrar las finalizadas en el calendario visible
+
                 let adminEventControls = '';
                 if (APP_STATE.user.role === 'admin') {
                     adminEventControls = `
@@ -790,7 +952,7 @@
                 `;
             }).join('');
 
-            if(APP_STATE.calendar.length === 0) {
+            if(APP_STATE.calendar.length === 0 || APP_STATE.calendar.every(ev => ev.finished)) {
                 eventsHtml = `<div class="text-center text-gray-500 py-8">No hay fechas programadas.</div>`;
             }
 
@@ -799,9 +961,7 @@
                     <h2 class="text-2xl font-display font-bold text-white mb-6 uppercase flex items-center gap-2">
                         <i class="far fa-calendar-alt text-picadas-pink"></i> Calendario de Eventos
                     </h2>
-                    
                     ${adminControls}
-
                     <div class="space-y-4">
                         ${eventsHtml}
                     </div>
@@ -863,9 +1023,6 @@
                             CATEGORÍA ${APP_STATE.selectedCategory}
                         </h2>
                     </div>
-                    
-                    <p class="text-gray-400 mb-4 text-sm">Selecciona una clase para ver las posiciones e inscribirte:</p>
-                    
                     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                         ${classButtons}
                     </div>
@@ -880,7 +1037,6 @@
             
             sortClassData(cat, cls);
             const data = categoryData.data[cls] || [];
-            
             const isAdmin = APP_STATE.user.role === 'admin';
             
             let timeLimitContent = '';
@@ -895,7 +1051,7 @@
                 <th class="bg-picadas-card px-3 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider w-16">N°</th>
                 <th class="sticky-col-2 bg-picadas-card px-4 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider min-w-[150px] border-r border-gray-800">Piloto</th>
             `;
-            categoryData.dates.forEach((date, i) => {
+            categoryData.dates.forEach((date) => {
                 headers += `<th class="bg-picadas-card px-2 py-3 text-center text-xs font-bold text-gray-400 uppercase tracking-wider min-w-[80px]">${date}</th>`;
             });
             headers += `<th class="bg-picadas-card px-4 py-3 text-center text-xs font-bold text-picadas-pink uppercase tracking-wider min-w-[80px]">Total</th>`;
@@ -944,15 +1100,29 @@
                     </div>
                 `;
             } else {
+                const enrollmentStatus = getEnrollmentStatus(cat, cls);
                 const isThisLive = APP_STATE.liveStatus.active && APP_STATE.liveStatus.category === cat && APP_STATE.liveStatus.class === cls;
                 
+                let enrollBtnHtml = '';
+                if (enrollmentStatus.open) {
+                    enrollBtnHtml = `
+                        <button onclick="setView('enrollment')" class="flex-1 bg-picadas-pink hover:bg-picadas-pinkDark text-white font-bold py-4 rounded-xl shadow-[0_0_15px_rgba(210,0,179,0.3)] transition-colors uppercase tracking-wider flex justify-center items-center gap-2">
+                            <i class="fas fa-flag-checkered"></i> INSCRIBIRME
+                        </button>
+                    `;
+                } else {
+                    enrollBtnHtml = `
+                        <div class="flex-1 bg-gray-900 border border-gray-800 text-gray-500 font-bold py-4 rounded-xl shadow-inner flex justify-center items-center gap-2 cursor-not-allowed uppercase tracking-wider text-xs md:text-sm">
+                            <i class="fas fa-lock"></i> ${enrollmentStatus.reason}
+                        </div>
+                    `;
+                }
+
                 userControls = `
-                    <div class="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black via-black to-transparent z-20 pb-8">
-                        <div class="max-w-4xl mx-auto flex gap-3">
-                            <button onclick="setView('enrollment')" class="flex-1 bg-picadas-pink hover:bg-picadas-pinkDark text-white font-bold py-4 rounded-xl shadow-[0_0_15px_rgba(210,0,179,0.3)] transition-colors uppercase tracking-wider flex justify-center items-center gap-2">
-                                <i class="fas fa-flag-checkered"></i> INSCRIBIRME
-                            </button>
-                            ${isThisLive ? `<div class="bg-green-500 text-white font-bold px-4 rounded-xl flex items-center justify-center animate-pulse"><i class="fas fa-broadcast-tower mr-2"></i> EN PISTA</div>` : ''}
+                    <div class="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black via-black to-transparent z-20 pb-8 pointer-events-none">
+                        <div class="max-w-4xl mx-auto flex gap-3 pointer-events-auto">
+                            ${enrollBtnHtml}
+                            ${isThisLive ? `<div class="bg-green-500 text-white font-bold px-4 rounded-xl flex items-center justify-center animate-pulse shadow-[0_0_15px_rgba(34,197,94,0.3)]"><i class="fas fa-broadcast-tower mr-2"></i> EN PISTA</div>` : ''}
                         </div>
                     </div>
                 `;
@@ -1676,7 +1846,8 @@
                 user: APP_STATE.user ? APP_STATE.user.name : 'Usuario',
                 doc: APP_STATE.user ? APP_STATE.user.doc : 'N/A',
                 type: type, 
-                message: message
+                message: message,
+                read: false
             });
 
             saveToFirebase();
@@ -1801,18 +1972,19 @@
                 rawDate: dateVal,
                 time: '',
                 temp: '-',
-                icon: 'fa-calendar text-blue-500'
+                icon: 'fa-calendar text-blue-500',
+                finished: false
             });
 
-            // Enviar notificación a todos los usuarios
             if(!APP_STATE.userNotifications) APP_STATE.userNotifications = [];
             APP_STATE.userNotifications.push({
                 id: Date.now() + 1,
-                doc: 'all', // Indicador para que lo vean todos
+                doc: 'all',
                 type: 'system',
                 title: '¡Nueva Fecha Confirmada!',
                 message: `Se ha programado: ${titleVal} para el día ${formattedDate}. ¡Prepará tu máquina!`,
-                date: new Date().toLocaleString([], {hour: '2-digit', minute:'2-digit', day:'2-digit', month:'2-digit', year:'2-digit'})
+                date: new Date().toLocaleString([], {hour: '2-digit', minute:'2-digit', day:'2-digit', month:'2-digit', year:'2-digit'}),
+                read: false
             });
             
             saveToFirebase();
@@ -1834,7 +2006,6 @@
             const input = document.getElementById(`reply-${id}`);
             const replyMessage = input.value;
 
-            // Generar notificación para el usuario específico
             if(!APP_STATE.userNotifications) APP_STATE.userNotifications = [];
             
             APP_STATE.userNotifications.push({
@@ -1843,10 +2014,10 @@
                 type: 'reply',
                 title: 'Respuesta de Soporte',
                 message: replyMessage,
-                date: new Date().toLocaleString([], {hour: '2-digit', minute:'2-digit', day:'2-digit', month:'2-digit', year:'2-digit'})
+                date: new Date().toLocaleString([], {hour: '2-digit', minute:'2-digit', day:'2-digit', month:'2-digit', year:'2-digit'}),
+                read: false
             });
 
-            // Eliminar de la bandeja del admin
             APP_STATE.notifications = APP_STATE.notifications.filter(n => n.id !== id);
 
             saveToFirebase();
@@ -1990,7 +2161,7 @@
         }
 
         function finishDate() {
-            if(confirm("¿Estás seguro de finalizar la fecha? Esto guardará el balance actual en el historial de Fechas y pondrá la caja de hoy en $0.")) {
+            if(confirm("¿Estás seguro de finalizar la fecha? Esto guardará el balance actual en el historial y cerrará inscripciones.")) {
                 const now = new Date();
                 const snapshot = {
                     date: now.toLocaleDateString() + ' ' + now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
@@ -1999,10 +2170,25 @@
                 };
                 
                 APP_STATE.history.balances.push(snapshot);
-                
-                // Reset balance
                 APP_STATE.balance = { spectators: 0, insurance: 0, autoEnrollment: 0, motoEnrollment: 0 };
                 
+                // Marcar el evento activo más cercano como finalizado para bloquear inscripciones
+                let minDiff = Infinity;
+                let eventToFinish = null;
+                if (APP_STATE.calendar) {
+                    APP_STATE.calendar.forEach(ev => {
+                        if (ev.rawDate && !ev.finished) {
+                            const evDate = new Date(ev.rawDate + 'T00:00:00');
+                            const diff = evDate - now;
+                            if (diff > -86400000 && diff < minDiff) { 
+                                minDiff = diff;
+                                eventToFinish = ev;
+                            }
+                        }
+                    });
+                }
+                if (eventToFinish) eventToFinish.finished = true;
+
                 saveToFirebase();
                 APP_STATE.liveTab = 'fechas';
                 render();
@@ -2062,7 +2248,6 @@
                 if (!el) return;
 
                 if (diffDays >= 0 && diffDays <= 14) {
-                    // API Open-Meteo para Concordia, Entre Ríos, Argentina
                     const url = `https://api.open-meteo.com/v1/forecast?latitude=-31.3931&longitude=-58.0209&daily=weathercode,temperature_2m_max&timezone=America%2FArgentina%2FBuenos_Aires&start_date=${rawDate}&end_date=${rawDate}`;
                     
                     const response = await fetch(url);
